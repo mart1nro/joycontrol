@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<record>
+    <attribute id="0x0001">
+        <sequence>
+            <uuid value="0x1124"/>
+        </sequence>
+    </attribute>
+    <attribute id="0x0004">
+        <sequence>
+            <sequence>
+                <uuid value="0x0100"/>
+                <uint16 value="0x0011"/>
+            </sequence>
+            <sequence>
+                <uuid value="0x0011"/>
+            </sequence>
+        </sequence>
+    </attribute>
+    <attribute id="0x0005">
+        <sequence>
+            <uuid value="0x1002"/>
+        </sequence>
+    </attribute>
+    <attribute id="0x0006">
+        <sequence>
+            <uint16 value="0x656e"/>
+            <uint16 value="0x006a"/>
+            <uint16 value="0x0100"/>
+        </sequence>
+    </attribute>
+    <attribute id="0x0009">
+        <sequence>
+            <sequence>
+                <uuid value="0x1124"/>
+                <uint16 value="0x0100"/>
+            </sequence>
+        </sequence>
+    </attribute>
+    <attribute id="0x000d">
+        <sequence>
+            <sequence>
+                <sequence>
+                    <uuid value="0x0100"/>
+                    <uint16 value="0x0013"/>
+                </sequence>
+                <sequence>
+                    <uuid value="0x0011"/>
+                </sequence>
+            </sequence>
+        </sequence>
+    </attribute>
+    <attribute id="0x0100">
+        <text value="Wireless Gamepad"/>
+    </attribute>
+    <attribute id="0x0101">
+        <text value="Gamepad"/>
+    </attribute>
+    <attribute id="0x0102">
+        <text value="Nintendo"/>
+    </attribute>
+    <attribute id="0x0200">
+        <uint16 value="0x0100"/>
+    </attribute>
+    <attribute id="0x0201">
+        <uint16 value="0x0111"/>
+    </attribute>
+    <attribute id="0x0202">
+        <uint8 value="0x08"/>
+    </attribute>
+    <attribute id="0x0203">
+        <uint8 value="0x00"/>
+    </attribute>
+    <attribute id="0x0204">
+        <boolean value="true"/>
+    </attribute>
+    <attribute id="0x0205">
+        <boolean value="true"/>
+    </attribute>
+    <attribute id="0x0206">
+        <sequence>
+            <sequence>
+                <uint8 value="0x22"/>
+                <text encoding="hex"
+                      value="050115000904a1018530050105091901290a150025017501950a5500650081020509190b290e150025017501950481027501950281030b01000100a1000b300001000b310001000b320001000b35000100150027ffff0000751095048102c00b39000100150025073500463b0165147504950181020509190f2912150025017501950481027508953481030600ff852109017508953f8103858109027508953f8103850109037508953f9183851009047508953f9183858009057508953f9183858209067508953f9183c0"/>
+            </sequence>
+        </sequence>
+    </attribute>
+    <attribute id="0x0207">
+        <sequence>
+            <sequence>
+                <uint16 value="0x0409"/>
+                <uint16 value="0x0100"/>
+            </sequence>
+        </sequence>
+    </attribute>
+    <attribute id="0x020b">
+        <uint16 value="0x0100"/>
+    </attribute>
+    <attribute id="0x020c">
+        <uint16 value="0x0c80"/>
+    </attribute>
+    <attribute id="0x020d">
+        <boolean value="false"/>
+    </attribute>
+    <attribute id="0x020e">
+        <boolean value="true"/>
+    </attribute>
+    <attribute id="0x020f">
+        <uint16 value="0x0640"/>
+    </attribute>
+    <attribute id="0x0210">
+        <uint16 value="0x0320"/>
+    </attribute>
+</record>
