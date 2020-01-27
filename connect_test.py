@@ -220,6 +220,10 @@ if __name__ == '__main__':
     ctl_sock = blt.BluetoothSocket(blt.L2CAP)
     itr_sock = blt.BluetoothSocket(blt.L2CAP)
 
+    logger.info('Restarting bluetooth service...')
+    os.system('systemctl restart bluetooth.service')
+    time.sleep(1)
+
     logger.info(f'Binding control channel to {CTL_PSM}...')
     ctl_sock.bind(("", CTL_PSM))
     logger.info(f'Binding interrupt channel to {ITR_PSM}...')
@@ -229,9 +233,7 @@ if __name__ == '__main__':
     ctl_sock.listen(1)  # Limit of 1 connection
     itr_sock.listen(1)
 
-    logger.info('Restarting bluetooth service...')
-    os.system('systemctl restart bluetooth.service')
-    time.sleep(1)
+
 
     hid = HidDevice()
     # setting bluetooth adapter name and class to the device we wish to emulate
