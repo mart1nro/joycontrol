@@ -1,14 +1,8 @@
 import asyncio
 import enum
 import logging
-import socket
 from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
-
-import logging_default as log
-import utils
-from device import HidDevice
-from transport import L2CAP_Transport
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +36,12 @@ class ControllerProtocol(BaseProtocol):
     def __init__(self, controller: Controller):
         self.transport = None
 
+        self._data_received = asyncio.Event()
+
+    async def wait_for_output_report(self):
+        self._data_received.clear()
+        await self._data_received.wait()
+
     def connection_made(self, transport: BaseTransport) -> None:
         logger.debug('Connection established.')
         self.transport = transport
@@ -50,7 +50,7 @@ class ControllerProtocol(BaseProtocol):
         raise NotImplementedError()
 
     async def report_received(self, data: Union[bytes, Text], addr: Tuple[str, int]) -> None:
-        raise NotImplementedError()
+        self._data_received.set()
 
     def error_received(self, exc: Exception) -> None:
         raise NotImplementedError()

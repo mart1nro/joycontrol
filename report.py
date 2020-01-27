@@ -1,0 +1,71 @@
+from enum import Enum, auto
+
+
+class InputReport:
+    def __init__(self):
+        self.data = [0x00] * 50
+        # all input reports are prepended with 0xA1
+        self.data[0] = 0xA1
+
+    def set(self, input_report_id, timer=0x00):
+        self.data[1] = input_report_id
+        self.data[2] = timer % 256
+        # battery level + connection info
+        self.data[3] = 0x8E
+
+        # Todo: Button status, analog stick data, vibrator input
+
+        # ACK byte for subcmd reply
+        self.data[14] = 0x82
+
+        # Reply-to subcommand ID
+        self.data[14] = 0x02
+
+    def sub_0x2_device_info(self, mac, fm_version=(0x03, 0x48), controller=0x01):
+        """
+        Sub command 0x02 request device info response.
+
+        :param mac: Controller MAC address in Big Endian (6 Bytes)
+        :param fm_version: TODO
+        :param controller: 1=Left Joy-Con, 2=Right Joy-Con, 3=Pro Controller
+        """
+        if len(fm_version) != 2:
+            raise ValueError('Firmware version must consist of 2 bytes!')
+        elif len(mac) != 6:
+            raise ValueError('Bluetooth mac address must consist of 6 bytes!')
+
+        # reply to sub command ID
+        self.data[14] = 0x02
+
+        # sub command reply data
+        offset = 15
+        self.data[offset: offset + 1] = fm_version
+        self.data[offset + 2] = controller
+        self.data[offset + 3] = 0x02
+        self.data[offset + 4: offset + 9] = mac
+        self.data[offset + 10] = 0x01
+        self.data[offset + 11] = 0x01
+
+    def __bytes__(self):
+        return bytes(self.data)
+
+
+class SubCommand(Enum):
+    REQUEST_DEVICE_INFO = auto()
+    NOT_IMPLEMENTED = auto()
+
+
+class OutputReport:
+    def __init__(self, data):
+        if data[0] != 0xA2:
+            raise ValueError('Output reports must start with 0xA2')
+        self.data = data
+
+    def sub_command(self):
+        if self.data[11] == 0x02:
+            return SubCommand.REQUEST_DEVICE_INFO
+        else:
+            return None
+
+    def __bytes__(self):
+        return bytes(self.data)
