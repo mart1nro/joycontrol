@@ -53,6 +53,8 @@ class ControllerProtocol(BaseProtocol):
             logger.error(f'No sub command found')
         elif sub_command == SubCommand.REQUEST_DEVICE_INFO:
             await self._command_request_device_info(report)
+        elif sub_command == SubCommand.SET_SHIPMENT_STATE:
+            await self._command_set_shipment_state(report)
         elif sub_command == SubCommand.NOT_IMPLEMENTED:
             logger.error(f'Sub command not implemented')
 
@@ -64,10 +66,20 @@ class ControllerProtocol(BaseProtocol):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
-        input_report.set_button_status()
-        input_report.set_left_analog_stick()
-        input_report.set_right_analog_stick()
-        input_report.set_vibrator_input()
+        input_report.set_ack(0x82)
+        #input_report.set_button_status()
+        #input_report.set_left_analog_stick()
+        #input_report.set_right_analog_stick()
+        #input_report.set_vibrator_input()
         input_report.sub_0x2_device_info(bd_address)
 
-        asyncio.ensure_future(self.transport.write(bytes(input_report)))
+        asyncio.ensure_future(self.transport.write(input_report))
+
+    async def _command_set_shipment_state(self, output_report):
+        input_report = InputReport()
+        input_report.set_input_report_id(0x21)
+        input_report.set_misc()
+        input_report.set_ack(0x80)
+        input_report.sub_0x8_shipment()
+
+        asyncio.ensure_future(self.transport.write(input_report))

@@ -2,6 +2,8 @@ import asyncio
 import logging
 from typing import Any
 
+from report import InputReport
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,13 +20,13 @@ class L2CAP_Transport(asyncio.Transport):
             'sockname': self._sock.getsockname()
         }
 
-        print("peer", self._sock.getpeername())
-
         self._read_thread = asyncio.ensure_future(self._read())
 
         self._is_closing = False
         self._is_reading = asyncio.Event()
         self._is_reading.set()
+
+        self._input_report_timer = 0x00
 
     async def _read(self):
         try:
@@ -58,8 +60,18 @@ class L2CAP_Transport(asyncio.Transport):
         return super().get_write_buffer_size()
 
     async def write(self, data: Any) -> None:
-        logger.debug(f'sending "{data}"')
-        await self._loop.sock_sendall(self._sock, data)
+
+        if isinstance(data, bytes):
+            _bytes = data
+        elif isinstance(data, InputReport):
+            data.set_timer(self._input_report_timer)
+            self._input_report_timer = (self._input_report_timer + 1) % 256
+            _bytes = bytes(data)
+        else:
+            raise ValueError('data must be bytes or InputReport')
+
+        logger.debug(f'sending "{_bytes}"')
+        await self._loop.sock_sendall(self._sock, _bytes)
 
     def abort(self) -> None:
         super().abort()

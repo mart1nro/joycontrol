@@ -31,8 +31,12 @@ class InputReport:
         # battery level + connection info
         self.data[3] = 0x8E
 
-        # ACK byte for subcmd reply
-        self.data[14] = 0x82
+    def set_ack(self, ack):
+        """
+        ACK byte for subcmd reply
+        TODO
+        """
+        self.data[14] = ack
 
     def set_button_status(self):
         """
@@ -86,9 +90,14 @@ class InputReport:
     def __bytes__(self):
         return bytes(self.data)
 
+    def sub_0x8_shipment(self):
+        # reply to sub command ID
+        self.data[15] = 0x08
+
 
 class SubCommand(Enum):
     REQUEST_DEVICE_INFO = auto()
+    SET_SHIPMENT_STATE = auto()
     NOT_IMPLEMENTED = auto()
 
 
@@ -100,8 +109,11 @@ class OutputReport:
 
     def get_sub_command(self):
         print('subcommand:', self.data[11])
-        if self.data[11] == 0x02:
+        sub_command_byte = self.data[11]
+        if sub_command_byte == 0x02:
             return SubCommand.REQUEST_DEVICE_INFO
+        elif sub_command_byte == 0x08:
+            return SubCommand.SET_SHIPMENT_STATE
         else:
             return None
 
