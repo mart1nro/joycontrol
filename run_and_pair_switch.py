@@ -64,10 +64,9 @@ async def send_empty_input_reports(transport):
 async def main():
     transport, protocol = await create_hid_server(controller_protocol_factory(Controller.JOYCON_L), 17, 19)
 
+    # send some empty input reports until the switch decides to reply
     future = asyncio.ensure_future(send_empty_input_reports(transport))
-
     await protocol.wait_for_output_report()
-
     future.cancel()
     try:
         await future
