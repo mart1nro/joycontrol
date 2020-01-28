@@ -8,6 +8,11 @@ Pairing works, emulated controller shows up in the "Change Grip/Order" menu of t
 Tested with Raspberry Pi 4B Raspbian GNU/Linux 10 (buster)
 
 
+```bash
+sudo python3 run_and_pair_switch.py
+```
+
+
 # Resources
 
 [Nintendo_Switch_Reverse_Engineering](https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering)
