@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import socket
 
 import logging_default as log
@@ -79,6 +80,10 @@ async def main():
 
 
 if __name__ == '__main__':
+    # check if root
+    if not os.geteuid() == 0:
+        raise PermissionError('Script must be run as root!')
+
     # setup logging
     log.configure()
 
