@@ -6,13 +6,19 @@ logger = logging.getLogger(__name__)
 
 
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, l2cap_socket, client_addr, read_buffer_size) -> None:
+    def __init__(self, loop, protocol, l2cap_socket, read_buffer_size) -> None:
         self._loop = loop
         self._protocol = protocol
 
         self._sock = l2cap_socket
-        self._client_addr = client_addr
         self._read_buffer_size = read_buffer_size
+
+        self._extra_info = {
+            'peername': self._sock.getpeername(),
+            'sockname': self._sock.getsockname()
+        }
+
+        print("peer", self._sock.getpeername())
 
         self._read_thread = asyncio.ensure_future(self._read())
 
@@ -28,7 +34,7 @@ class L2CAP_Transport(asyncio.Transport):
 
                 data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
                 logger.debug(f'received "{data}')
-                await self._protocol.report_received(data, self._client_addr)
+                await self._protocol.report_received(data, self._sock.getpeername())
         except asyncio.CancelledError:
             # reading has been stopped
             pass
@@ -59,7 +65,7 @@ class L2CAP_Transport(asyncio.Transport):
         super().abort()
 
     def get_extra_info(self, name: Any, default: Any = ...) -> Any:
-        return super().get_extra_info(name, default)
+        return self._extra_info.get(name, default)
 
     def is_closing(self) -> bool:
         return self._is_closing

@@ -1,29 +1,12 @@
 import asyncio
-import enum
 import logging
 from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
 
+from controller import Controller
+from report import OutputReport, SubCommand, InputReport
+
 logger = logging.getLogger(__name__)
-
-
-class Controller(enum.Enum):
-    JOYCON_L = 0x01
-    JOYCON_R = 0x02
-    PRO_CONTROLLER = 0x03
-
-    def device_name(self):
-        """
-        :returns corresponding bluetooth device name
-        """
-        if self == Controller.JOYCON_L:
-            return 'Joy-Con (L)'
-        elif self == Controller.JOYCON_R:
-            return 'Joy-Con (R)'
-        elif self == Controller.PRO_CONTROLLER:
-            return 'Pro Controller'
-        else:
-            raise NotImplementedError()
 
 
 def controller_protocol_factory(controller: Controller):
@@ -34,6 +17,8 @@ def controller_protocol_factory(controller: Controller):
 
 class ControllerProtocol(BaseProtocol):
     def __init__(self, controller: Controller):
+        self.controller = controller
+
         self.transport = None
 
         self._data_received = asyncio.Event()
@@ -49,8 +34,40 @@ class ControllerProtocol(BaseProtocol):
     def connection_lost(self, exc: Optional[Exception]) -> None:
         raise NotImplementedError()
 
+    def error_received(self, exc: Exception) -> None:
+        raise NotImplementedError()
+
     async def report_received(self, data: Union[bytes, Text], addr: Tuple[str, int]) -> None:
         self._data_received.set()
 
-    def error_received(self, exc: Exception) -> None:
-        raise NotImplementedError()
+        try:
+            report = OutputReport(list(data))
+        except ValueError as v_err:
+            logger.warning(f'Report parsing error "{v_err}" - IGNORE')
+            return
+
+        # classify sub command
+        sub_command = report.get_sub_command()
+        logging.info(f'received output report - {sub_command}')
+        if sub_command is None:
+            logger.error(f'No sub command found')
+        elif sub_command == SubCommand.REQUEST_DEVICE_INFO:
+            await self._command_request_device_info(report)
+        elif sub_command == SubCommand.NOT_IMPLEMENTED:
+            logger.error(f'Sub command not implemented')
+
+    async def _command_request_device_info(self, output_report):
+        address = self.transport.get_extra_info('sockname')
+        assert address is not None
+        bd_address = list(map(lambda x: int(x, 16), address[0].split(':')))
+
+        input_report = InputReport()
+        input_report.set_input_report_id(0x21)
+        input_report.set_misc()
+        input_report.set_button_status()
+        input_report.set_left_analog_stick()
+        input_report.set_right_analog_stick()
+        input_report.set_vibrator_input()
+        input_report.sub_0x2_device_info(bd_address)
+
+        asyncio.ensure_future(self.transport.write(bytes(input_report)))

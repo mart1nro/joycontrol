@@ -12,10 +12,6 @@ class HidDevice:
     _HID_UUID = '00001124-0000-1000-8000-00805f9b34fb'
     _HID_PATH = '/bluez/switch/hid'
 
-    PRO_CONTROLLER = 'Pro Controller'
-    JOYCON_R = 'Joy-Con (R)'
-    JOYCON_L = 'Joy-Con (L)'
-
     def __init__(self):
         self._uuid = str(uuid.uuid4())
 

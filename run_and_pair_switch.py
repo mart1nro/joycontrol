@@ -32,7 +32,7 @@ async def create_hid_server(protocol_factory, ctl_psm, itr_psm):
 
     hid = HidDevice()
     # setting bluetooth adapter name and class to the device we wish to emulate
-    await hid.set_name(HidDevice.JOYCON_L)
+    await hid.set_name(Controller.JOYCON_L.device_name())
     await hid.set_class()
 
     logger.info('Advertising the Bluetooth SDP record...')
@@ -40,13 +40,14 @@ async def create_hid_server(protocol_factory, ctl_psm, itr_psm):
     hid.discoverable()
 
     loop = asyncio.get_event_loop()
-    client_ctl, address = await loop.sock_accept(ctl_sock)
-    logger.info(f'Accepted connection at psm {ctl_psm} from {address}')
-    client_itr, address = await loop.sock_accept(itr_sock)
-    logger.info(f'Accepted connection at psm {itr_psm} from {address}')
+    client_ctl, ctl_address = await loop.sock_accept(ctl_sock)
+    logger.info(f'Accepted connection at psm {ctl_psm} from {ctl_address}')
+    client_itr, itr_address = await loop.sock_accept(itr_sock)
+    logger.info(f'Accepted connection at psm {itr_psm} from {itr_address}')
+    assert ctl_address[0] == itr_address[0]
 
     protocol = protocol_factory()
-    transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, address, 50)
+    transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50)
     protocol.connection_made(transport)
 
     return transport, protocol
@@ -72,6 +73,8 @@ async def main():
         await future
     except asyncio.CancelledError:
         pass
+
+    await asyncio.sleep(60)
 
     await transport.close()
 
