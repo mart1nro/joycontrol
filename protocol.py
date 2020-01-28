@@ -55,6 +55,12 @@ class ControllerProtocol(BaseProtocol):
             await self._command_request_device_info(report)
         elif sub_command == SubCommand.SET_SHIPMENT_STATE:
             await self._command_set_shipment_state(report)
+        elif sub_command == SubCommand.SPI_FLASH_READ:
+            await self._command_spi_flash_read(report)
+        elif sub_command == SubCommand.SET_INPUT_REPORT_MODE:
+            await self._command_set_input_report_mode(report)
+        elif sub_command == SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME:
+            await self._command_trigger_buttons_elapsed_time(report)
         elif sub_command == SubCommand.NOT_IMPLEMENTED:
             logger.error(f'Sub command not implemented')
 
@@ -71,7 +77,7 @@ class ControllerProtocol(BaseProtocol):
         #input_report.set_left_analog_stick()
         #input_report.set_right_analog_stick()
         #input_report.set_vibrator_input()
-        input_report.sub_0x2_device_info(bd_address)
+        input_report.sub_0x02_device_info(bd_address)
 
         asyncio.ensure_future(self.transport.write(input_report))
 
@@ -80,6 +86,33 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
         input_report.set_ack(0x80)
-        input_report.sub_0x8_shipment()
+        input_report.sub_0x08_shipment()
+
+        asyncio.ensure_future(self.transport.write(input_report))
+
+    async def _command_spi_flash_read(self, output_report):
+        input_report = InputReport()
+        input_report.set_input_report_id(0x21)
+        input_report.set_misc()
+        input_report.set_ack(0x90)
+        input_report.sub_0x10_spi_flash_read(output_report)
+
+        asyncio.ensure_future(self.transport.write(input_report))
+
+    async def _command_set_input_report_mode(self, output_report):
+        input_report = InputReport()
+        input_report.set_input_report_id(0x21)
+        input_report.set_misc()
+        input_report.set_ack(0x80)
+        input_report.sub_0x03_set_input_report_mode()
+
+        asyncio.ensure_future(self.transport.write(input_report))
+
+    async def _command_trigger_buttons_elapsed_time(self, output_report):
+        input_report = InputReport()
+        input_report.set_input_report_id(0x21)
+        input_report.set_misc()
+        input_report.set_ack(0x83)
+        input_report.sub_0x04_trigger_buttons_elapsed_time()
 
         asyncio.ensure_future(self.transport.write(input_report))

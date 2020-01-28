@@ -62,7 +62,7 @@ class InputReport:
         """
         self.data[13] = 0x80
 
-    def sub_0x2_device_info(self, mac, fm_version=(0x03, 0x48), controller=Controller.JOYCON_L):
+    def sub_0x02_device_info(self, mac, fm_version=(0x03, 0x48), controller=Controller.JOYCON_L):
         """
         Sub command 0x02 request device info response.
 
@@ -87,18 +87,38 @@ class InputReport:
         self.data[offset + 10] = 0x01
         self.data[offset + 11] = 0x01
 
-    def __bytes__(self):
-        return bytes(self.data)
-
-    def sub_0x8_shipment(self):
+    def sub_0x08_shipment(self):
         # reply to sub command ID
         self.data[15] = 0x08
+
+    def sub_0x10_spi_flash_read(self, output_report):
+        # reply to sub command ID
+        self.data[15] = 0x10
+        self.data[16:18] = output_report.data[12:14]
+
+    def sub_0x03_set_input_report_mode(self):
+        # reply to sub command ID
+        self.data[15] = 0x03
+
+    def sub_0x04_trigger_buttons_elapsed_time(self):
+        # reply to sub command ID
+        self.data[15] = 0x04
+
+        # TODO
+        blub = [0x00, 0xCC, 0x00, 0xEE, 0x00, 0xFF]
+        self.data[16:22] = blub
+
+    def __bytes__(self):
+        return bytes(self.data)
 
 
 class SubCommand(Enum):
     REQUEST_DEVICE_INFO = auto()
     SET_SHIPMENT_STATE = auto()
+    SPI_FLASH_READ = auto()
+    SET_INPUT_REPORT_MODE = auto()
     NOT_IMPLEMENTED = auto()
+    TRIGGER_BUTTONS_ELAPSED_TIME = auto()
 
 
 class OutputReport:
@@ -114,6 +134,12 @@ class OutputReport:
             return SubCommand.REQUEST_DEVICE_INFO
         elif sub_command_byte == 0x08:
             return SubCommand.SET_SHIPMENT_STATE
+        elif sub_command_byte == 0x10:
+            return SubCommand.SPI_FLASH_READ
+        elif sub_command_byte == 0x03:
+            return SubCommand.SET_INPUT_REPORT_MODE
+        elif sub_command_byte == 0x04:
+            return SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME
         else:
             return None
 
