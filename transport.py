@@ -29,17 +29,12 @@ class L2CAP_Transport(asyncio.Transport):
         self._input_report_timer = 0x00
 
     async def _read(self):
-        try:
-            while True:
+        while True:
+            await self._is_reading.wait()
 
-                await self._is_reading.wait()
-
-                data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
-                logger.debug(f'received "{data}')
-                await self._protocol.report_received(data, self._sock.getpeername())
-        except asyncio.CancelledError:
-            # reading has been stopped
-            pass
+            data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
+            logger.debug(f'received "{data}"')
+            await self._protocol.report_received(data, self._sock.getpeername())
 
     def is_reading(self) -> bool:
         return self._is_reading.is_set()
@@ -76,7 +71,7 @@ class L2CAP_Transport(asyncio.Transport):
     def abort(self) -> None:
         super().abort()
 
-    def get_extra_info(self, name: Any, default: Any = ...) -> Any:
+    def get_extra_info(self, name: Any, default=None) -> Any:
         return self._extra_info.get(name, default)
 
     def is_closing(self) -> bool:

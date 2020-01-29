@@ -80,7 +80,7 @@ class ControllerProtocol(BaseProtocol):
         #input_report.set_left_analog_stick()
         #input_report.set_right_analog_stick()
         #input_report.set_vibrator_input()
-        input_report.sub_0x02_device_info(bd_address)
+        input_report.sub_0x02_device_info(bd_address, controller=self.controller)
 
         asyncio.ensure_future(self.transport.write(input_report))
 

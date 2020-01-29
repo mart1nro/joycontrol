@@ -31,9 +31,11 @@ async def create_hid_server(protocol_factory, ctl_psm, itr_psm):
     ctl_sock.listen(1)
     itr_sock.listen(1)
 
+    protocol = protocol_factory()
+
     hid = HidDevice()
     # setting bluetooth adapter name and class to the device we wish to emulate
-    await hid.set_name(Controller.JOYCON_L.device_name())
+    await hid.set_name(protocol.controller.device_name())
     await hid.set_class()
 
     logger.info('Advertising the Bluetooth SDP record...')
@@ -47,7 +49,6 @@ async def create_hid_server(protocol_factory, ctl_psm, itr_psm):
     logger.info(f'Accepted connection at psm {itr_psm} from {itr_address}')
     assert ctl_address[0] == itr_address[0]
 
-    protocol = protocol_factory()
     transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50)
     protocol.connection_made(transport)
 
@@ -58,12 +59,12 @@ async def send_empty_input_reports(transport):
     report = InputReport()
 
     while True:
-        await transport.write(bytes(report))
+        await transport.write(report)
         await asyncio.sleep(1)
 
 
 async def main():
-    transport, protocol = await create_hid_server(controller_protocol_factory(Controller.JOYCON_L), 17, 19)
+    transport, protocol = await create_hid_server(controller_protocol_factory(Controller.PRO_CONTROLLER), 17, 19)
 
     # send some empty input reports until the switch decides to reply
     future = asyncio.ensure_future(send_empty_input_reports(transport))
@@ -74,8 +75,9 @@ async def main():
     except asyncio.CancelledError:
         pass
 
+    # stop communication after some time
     await asyncio.sleep(60)
-
+    logger.info('Stopping communication...')
     await transport.close()
 
 
