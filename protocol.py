@@ -47,7 +47,7 @@ class ControllerProtocol(BaseProtocol):
             return
 
         # classify sub command
-        sub_command = report.get_sub_command()
+        sc_byte, sub_command = report.get_sub_command()
         logging.info(f'received output report - {sub_command}')
         if sub_command == SubCommand.REQUEST_DEVICE_INFO:
             await self._command_request_device_info(report)
@@ -65,7 +65,7 @@ class ControllerProtocol(BaseProtocol):
             await self._command_trigger_buttons_elapsed_time(report)
 
         elif sub_command == SubCommand.NOT_IMPLEMENTED:
-            logger.error(f'Sub command not implemented - ignoring')
+            logger.error(f'Sub command 0x{sc_byte:02x} not implemented - ignoring')
 
     async def _command_request_device_info(self, output_report):
         address = self.transport.get_extra_info('sockname')
@@ -117,5 +117,15 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_misc()
         input_report.set_ack(0x83)
         input_report.sub_0x04_trigger_buttons_elapsed_time()
+
+        asyncio.ensure_future(self.transport.write(input_report))
+
+    async def _enable_6axis_sensor(self, output_report):
+        input_report = InputReport()
+        input_report.set_input_report_id(0x21)
+        input_report.set_misc()
+        input_report.set_ack(0x80)
+
+        input_report.reply_to_subcommand_id(0x40)
 
         asyncio.ensure_future(self.transport.write(input_report))

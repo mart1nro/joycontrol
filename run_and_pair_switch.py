@@ -5,6 +5,7 @@ import socket
 
 import logging_default as log
 import utils
+from buttons import Buttons
 from device import HidDevice
 from protocol import controller_protocol_factory, Controller
 from report import InputReport
@@ -63,6 +64,24 @@ async def send_empty_input_reports(transport):
         await asyncio.sleep(1)
 
 
+async def mash_home_button(transport):
+    report = InputReport()
+    report.set_input_report_id(0x21)
+    report.set_misc()
+
+    buttons = Buttons()
+
+    for _ in range(30):
+        buttons.home()
+        report.data[4:7] = buttons.to_list()
+        await transport.write(report)
+        await asyncio.sleep(0.1)
+        buttons.home()
+        report.data[4:7] = buttons.to_list()
+        await transport.write(report)
+        await asyncio.sleep(.3)
+
+
 async def main():
     transport, protocol = await create_hid_server(controller_protocol_factory(Controller.PRO_CONTROLLER), 17, 19)
 
@@ -74,6 +93,10 @@ async def main():
         await future
     except asyncio.CancelledError:
         pass
+
+    await asyncio.sleep(5)
+
+    await mash_home_button(transport)
 
     # stop communication after some time
     await asyncio.sleep(60)

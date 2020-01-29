@@ -4,6 +4,10 @@ from controller import Controller
 
 
 class InputReport:
+    """
+    Class to create Input Reports. Reference:
+    https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md
+    """
     def __init__(self):
         self.data = [0x00] * 50
         # all input reports are prepended with 0xA1
@@ -11,26 +15,20 @@ class InputReport:
 
     def set_input_report_id(self, _id):
         """
-        :param _id: e.g. 0x21 Standard input reports used for subcommand replies, etc... (TODO)
+        :param _id: e.g. 0x21 Standard input reports used for sub command replies
+                         etc... (TODO)
         """
         self.data[1] = _id
 
     def set_timer(self, timer):
         """
-        Input report timer, usually set by the transport
+        Input report timer (0x00-0xFF), usually set by the transport
         """
         self.data[2] = timer % 256
 
     def set_misc(self):
         # battery level + connection info
         self.data[3] = 0x8E
-
-    def set_ack(self, ack):
-        """
-        ACK byte for subcmd reply
-        TODO
-        """
-        self.data[14] = ack
 
     def set_button_status(self):
         """
@@ -55,6 +53,13 @@ class InputReport:
         TODO
         """
         self.data[13] = 0x80
+
+    def set_ack(self, ack):
+        """
+        ACK byte for subcmd reply
+        TODO
+        """
+        self.data[14] = ack
 
     def sub_0x02_device_info(self, mac, fm_version=(0x03, 0x48), controller=Controller.JOYCON_L):
         """
@@ -81,22 +86,21 @@ class InputReport:
         self.data[offset + 10] = 0x01
         self.data[offset + 11] = 0x01
 
+    def reply_to_subcommand_id(self, id_):
+        self.data[15] = id_
+
     def sub_0x08_shipment(self):
-        # reply to sub command ID
-        self.data[15] = 0x08
+        self.reply_to_subcommand_id(0x08)
 
     def sub_0x10_spi_flash_read(self, output_report):
-        # reply to sub command ID
-        self.data[15] = 0x10
+        self.reply_to_subcommand_id(0x10)
         self.data[16:18] = output_report.data[12:14]
 
     def sub_0x03_set_input_report_mode(self):
-        # reply to sub command ID
-        self.data[15] = 0x03
+        self.reply_to_subcommand_id(0x03)
 
     def sub_0x04_trigger_buttons_elapsed_time(self):
-        # reply to sub command ID
-        self.data[15] = 0x04
+        self.reply_to_subcommand_id(0x04)
 
         # TODO
         blub = [0x00, 0xCC, 0x00, 0xEE, 0x00, 0xFF]
@@ -112,6 +116,7 @@ class SubCommand(Enum):
     TRIGGER_BUTTONS_ELAPSED_TIME = 0x04
     SET_SHIPMENT_STATE = 0x08
     SPI_FLASH_READ = 0x10
+    ENABLE_6AXIS_SENSOR = 0x40
     NOT_IMPLEMENTED = 0xFF
 
 
@@ -123,9 +128,9 @@ class OutputReport:
 
     def get_sub_command(self):
         try:
-            return SubCommand(self.data[11])
+            return self.data[11], SubCommand(self.data[11])
         except ValueError:
-            return SubCommand.NOT_IMPLEMENTED
+            return self.data[11], SubCommand.NOT_IMPLEMENTED
 
     def __bytes__(self):
         return bytes(self.data)
