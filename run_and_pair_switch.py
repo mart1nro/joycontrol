@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import socket
 
 import logging_default as log
@@ -64,22 +65,36 @@ async def send_empty_input_reports(transport):
         await asyncio.sleep(1)
 
 
-async def mash_home_button(transport):
+async def mash_buttons(transport):
+    button_list = ['y', 'x', 'b', 'a', 'r', 'zr',
+                   'minus', 'plus', 'r_stick', 'l_stick',
+                   'down', 'up', 'right', 'left', 'l', 'zl']
+
     report = InputReport()
     report.set_input_report_id(0x21)
     report.set_misc()
 
     buttons = Buttons()
 
-    for _ in range(30):
-        buttons.home()
-        report.data[4:7] = buttons.to_list()
-        await transport.write(report)
-        await asyncio.sleep(0.1)
-        buttons.home()
-        report.data[4:7] = buttons.to_list()
-        await transport.write(report)
-        await asyncio.sleep(.3)
+    for i in range(10):
+        for button in button_list:
+            logger.info(f'Pressing Button {button}...')
+
+            # push button
+            getattr(buttons, button)()
+
+            # send report
+            report.data[4:7] = buttons.to_list()
+            await transport.write(report)
+            await asyncio.sleep(0.1)
+
+            # release button
+            getattr(buttons, button)()
+
+            # send report
+            report.data[4:7] = buttons.to_list()
+            await transport.write(report)
+            await asyncio.sleep(0.3)
 
 
 async def main():
@@ -94,9 +109,9 @@ async def main():
     except asyncio.CancelledError:
         pass
 
-    await asyncio.sleep(5)
+    await asyncio.sleep(20)
 
-    await mash_home_button(transport)
+    await mash_buttons(transport)
 
     # stop communication after some time
     await asyncio.sleep(60)
