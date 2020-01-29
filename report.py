@@ -1,11 +1,5 @@
-from enum import Enum, auto
+from enum import Enum
 
-#[0xA1 0, 0x21 1, 0x05 2, 0x8E 3,
-# 0x84, 0x00, 0x12, button
-# 0x01, 0x18, 0x80, left analog
-# 0x01, 0x18, 0x80, right analog
-# 0x80, vibrator?
-# 0x82, 0x02, 0x03, 0x48, 0x01, 0x02, 0xDC, 0xA6, 0x32, 0x71, 0x58, 0xBB, 0x01, 0x01]
 from controller import Controller
 
 
@@ -113,12 +107,12 @@ class InputReport:
 
 
 class SubCommand(Enum):
-    REQUEST_DEVICE_INFO = auto()
-    SET_SHIPMENT_STATE = auto()
-    SPI_FLASH_READ = auto()
-    SET_INPUT_REPORT_MODE = auto()
-    NOT_IMPLEMENTED = auto()
-    TRIGGER_BUTTONS_ELAPSED_TIME = auto()
+    REQUEST_DEVICE_INFO = 0x02
+    SET_INPUT_REPORT_MODE = 0x03
+    TRIGGER_BUTTONS_ELAPSED_TIME = 0x04
+    SET_SHIPMENT_STATE = 0x08
+    SPI_FLASH_READ = 0x10
+    NOT_IMPLEMENTED = 0xFF
 
 
 class OutputReport:
@@ -128,20 +122,10 @@ class OutputReport:
         self.data = data
 
     def get_sub_command(self):
-        print('subcommand:', self.data[11])
-        sub_command_byte = self.data[11]
-        if sub_command_byte == 0x02:
-            return SubCommand.REQUEST_DEVICE_INFO
-        elif sub_command_byte == 0x08:
-            return SubCommand.SET_SHIPMENT_STATE
-        elif sub_command_byte == 0x10:
-            return SubCommand.SPI_FLASH_READ
-        elif sub_command_byte == 0x03:
-            return SubCommand.SET_INPUT_REPORT_MODE
-        elif sub_command_byte == 0x04:
-            return SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME
-        else:
-            return None
+        try:
+            return SubCommand(self.data[11])
+        except ValueError:
+            return SubCommand.NOT_IMPLEMENTED
 
     def __bytes__(self):
         return bytes(self.data)

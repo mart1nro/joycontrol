@@ -49,20 +49,23 @@ class ControllerProtocol(BaseProtocol):
         # classify sub command
         sub_command = report.get_sub_command()
         logging.info(f'received output report - {sub_command}')
-        if sub_command is None:
-            logger.error(f'No sub command found')
-        elif sub_command == SubCommand.REQUEST_DEVICE_INFO:
+        if sub_command == SubCommand.REQUEST_DEVICE_INFO:
             await self._command_request_device_info(report)
+
         elif sub_command == SubCommand.SET_SHIPMENT_STATE:
             await self._command_set_shipment_state(report)
+
         elif sub_command == SubCommand.SPI_FLASH_READ:
             await self._command_spi_flash_read(report)
+
         elif sub_command == SubCommand.SET_INPUT_REPORT_MODE:
             await self._command_set_input_report_mode(report)
+
         elif sub_command == SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME:
             await self._command_trigger_buttons_elapsed_time(report)
+
         elif sub_command == SubCommand.NOT_IMPLEMENTED:
-            logger.error(f'Sub command not implemented')
+            logger.error(f'Sub command not implemented - ignoring')
 
     async def _command_request_device_info(self, output_report):
         address = self.transport.get_extra_info('sockname')

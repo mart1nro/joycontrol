@@ -60,10 +60,10 @@ class L2CAP_Transport(asyncio.Transport):
         return super().get_write_buffer_size()
 
     async def write(self, data: Any) -> None:
-
         if isinstance(data, bytes):
             _bytes = data
         elif isinstance(data, InputReport):
+            # set timer byte of input report
             data.set_timer(self._input_report_timer)
             self._input_report_timer = (self._input_report_timer + 1) % 256
             _bytes = bytes(data)
