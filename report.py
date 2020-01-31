@@ -1,5 +1,7 @@
+import asyncio
 from enum import Enum
 
+from button_state import ButtonState
 from controller import Controller
 
 
@@ -9,9 +11,18 @@ class InputReport:
     https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md
     """
     def __init__(self):
-        self.data = [0x00] * 50
+        self.data = [0x00] * 51
         # all input reports are prepended with 0xA1
         self.data[0] = 0xA1
+
+        self.subcommand_is_set = False
+
+        self.is_writing = None
+
+    def clear_sub_command(self):
+        for i in range(14, 51):
+            self.data[i] = 0x00
+        self.subcommand_is_set = False
 
     def set_input_report_id(self, _id):
         """
@@ -30,11 +41,11 @@ class InputReport:
         # battery level + connection info
         self.data[3] = 0x8E
 
-    def set_button_status(self):
+    def set_button_status(self, button_status: ButtonState):
         """
-        TODO
+        Sets the button status bytes
         """
-        self.data[4:7] = [0x84, 0x00, 0x12]
+        self.data[4:7] = iter(button_status)
 
     def set_left_analog_stick(self):
         """
@@ -74,8 +85,7 @@ class InputReport:
         elif len(mac) != 6:
             raise ValueError('Bluetooth mac address must consist of 6 bytes!')
 
-        # reply to sub command ID
-        self.data[15] = 0x02
+        self.reply_to_subcommand_id(0x02)
 
         # sub command reply data
         offset = 16
@@ -87,6 +97,7 @@ class InputReport:
         self.data[offset + 11] = 0x01
 
     def reply_to_subcommand_id(self, id_):
+        self.subcommand_is_set = True
         self.data[15] = id_
 
     def sub_0x08_shipment(self):
@@ -106,8 +117,17 @@ class InputReport:
         blub = [0x00, 0xCC, 0x00, 0xEE, 0x00, 0xFF]
         self.data[16:22] = blub
 
+    async def write(self, transport):
+        if self.is_writing is None:
+            self.is_writing = asyncio.ensure_future(transport.write(self))
+        await self.is_writing
+        self.is_writing = None
+
     def __bytes__(self):
-        return bytes(self.data)
+        if self.subcommand_is_set:
+            return bytes(self.data)
+        else:
+            return bytes(self.data[:15])
 
 
 class SubCommand(Enum):
@@ -127,6 +147,8 @@ class OutputReport:
         self.data = data
 
     def get_sub_command(self):
+        if len(self.data) < 12:
+            return None, None
         try:
             return self.data[11], SubCommand(self.data[11])
         except ValueError:

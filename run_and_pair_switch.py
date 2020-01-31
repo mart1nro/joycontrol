@@ -5,7 +5,7 @@ import socket
 
 import logging_default as log
 import utils
-from buttons import Buttons
+from controller_state import ButtonState, ControllerState
 from device import HidDevice
 from protocol import controller_protocol_factory, Controller
 from report import InputReport
@@ -64,36 +64,79 @@ async def send_empty_input_reports(transport):
         await asyncio.sleep(1)
 
 
-async def mash_buttons(transport):
+async def button_push(controller_state, button, sec=0.1):
+    button_state = ButtonState()
+
+    # push button
+    getattr(button_state, button)()
+
+    # send report
+    controller_state.set_button_state(button_state)
+    await controller_state.send()
+    await asyncio.sleep(sec)
+
+    # release button
+    getattr(button_state, button)()
+
+    # send report
+    controller_state.set_button_state(button_state)
+    await controller_state.send()
+
+
+async def test_controller_buttons(controller_state: ControllerState):
+    """
+    Goes to the "Test Controller Buttons" menu and presses all buttons
+    """
+    await controller_state.connect()
+
+    # We assume we are in the "Change Grip/Order" menu of the switch
+    await button_push(controller_state, 'home')
+
+    # wait for the animation
+    await asyncio.sleep(1)
+
+    # Goto settings
+    await button_push(controller_state, 'down')
+    await asyncio.sleep(0.3)
+    for _ in range(4):
+        await button_push(controller_state, 'right')
+        await asyncio.sleep(0.3)
+    await button_push(controller_state, 'a')
+    await asyncio.sleep(0.3)
+
+    # go all the way down
+    await button_push(controller_state, 'down', sec=3)
+    await asyncio.sleep(0.3)
+
+    # goto "Controllers and Sensors" menu
+    for _ in range(2):
+        await button_push(controller_state, 'up')
+        await asyncio.sleep(0.3)
+    await button_push(controller_state, 'right')
+    await asyncio.sleep(0.3)
+
+    # go all the way down
+    await button_push(controller_state, 'down', sec=3)
+    await asyncio.sleep(0.3)
+
+    # goto "Test Input Devices" menu
+    await button_push(controller_state, 'up')
+    await asyncio.sleep(0.3)
+    await button_push(controller_state, 'a')
+    await asyncio.sleep(0.3)
+
+    # goto "Test Controller Buttons" menu
+    await button_push(controller_state, 'a')
+    await asyncio.sleep(0.3)
+
+    # push all buttons
     button_list = ['y', 'x', 'b', 'a', 'r', 'zr',
                    'minus', 'plus', 'r_stick', 'l_stick',
                    'down', 'up', 'right', 'left', 'l', 'zl']
-
-    report = InputReport()
-    report.set_input_report_id(0x21)
-    report.set_misc()
-
-    buttons = Buttons()
-
     for i in range(10):
         for button in button_list:
-            logger.info(f'Pressing Button {button}...')
-
-            # push button
-            getattr(buttons, button)()
-
-            # send report
-            report.data[4:7] = buttons.to_list()
-            await transport.write(report)
+            await button_push(controller_state, button)
             await asyncio.sleep(0.1)
-
-            # release button
-            getattr(buttons, button)()
-
-            # send report
-            report.data[4:7] = buttons.to_list()
-            await transport.write(report)
-            await asyncio.sleep(0.3)
 
 
 async def main():
@@ -108,12 +151,8 @@ async def main():
     except asyncio.CancelledError:
         pass
 
-    await asyncio.sleep(20)
+    await test_controller_buttons(ControllerState(transport, protocol))
 
-    await mash_buttons(transport)
-
-    # stop communication after some time
-    await asyncio.sleep(60)
     logger.info('Stopping communication...')
     await transport.close()
 

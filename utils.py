@@ -5,6 +5,14 @@ import re
 logger = logging.getLogger(__name__)
 
 
+def get_bit(value, n):
+    return (value >> n & 1) != 0
+
+
+def flip_bit(value, n):
+    return value ^ (1 << n)
+
+
 async def run_system_command(cmd):
     proc = await asyncio.create_subprocess_shell(
         cmd,

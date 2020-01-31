@@ -21,6 +21,11 @@ class ControllerProtocol(BaseProtocol):
 
         self.transport = None
 
+        # This must always be an 0x21 input report to be compatible with button events
+        self.button_input_report = InputReport()
+        self.button_input_report.set_input_report_id(0x21)
+        self.button_input_report.set_misc()
+
         self._data_received = asyncio.Event()
 
     async def wait_for_output_report(self):
@@ -49,7 +54,9 @@ class ControllerProtocol(BaseProtocol):
         # classify sub command
         sc_byte, sub_command = report.get_sub_command()
         logging.info(f'received output report - {sub_command}')
-        if sub_command == SubCommand.REQUEST_DEVICE_INFO:
+        if sub_command is None:
+            logger.warning(f'Received output report does not contain a sub command')
+        elif sub_command == SubCommand.REQUEST_DEVICE_INFO:
             await self._command_request_device_info(report)
 
         elif sub_command == SubCommand.SET_SHIPMENT_STATE:
@@ -65,67 +72,51 @@ class ControllerProtocol(BaseProtocol):
             await self._command_trigger_buttons_elapsed_time(report)
 
         elif sub_command == SubCommand.NOT_IMPLEMENTED:
-            logger.error(f'Sub command 0x{sc_byte:02x} not implemented - ignoring')
+            logger.warning(f'Sub command 0x{sc_byte:02x} not implemented - ignoring')
 
     async def _command_request_device_info(self, output_report):
         address = self.transport.get_extra_info('sockname')
         assert address is not None
         bd_address = list(map(lambda x: int(x, 16), address[0].split(':')))
 
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-        input_report.set_ack(0x82)
-        #input_report.set_button_status()
-        #input_report.set_left_analog_stick()
-        #input_report.set_right_analog_stick()
-        #input_report.set_vibrator_input()
-        input_report.sub_0x02_device_info(bd_address, controller=self.controller)
+        self.button_input_report.set_misc()
+        self.button_input_report.set_ack(0x82)
+        self.button_input_report.sub_0x02_device_info(bd_address, controller=self.controller)
 
-        asyncio.ensure_future(self.transport.write(input_report))
+        await self.button_input_report.write(self.transport)
 
     async def _command_set_shipment_state(self, output_report):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-        input_report.set_ack(0x80)
-        input_report.sub_0x08_shipment()
+        self.button_input_report.set_misc()
+        self.button_input_report.set_ack(0x80)
+        self.button_input_report.sub_0x08_shipment()
 
-        asyncio.ensure_future(self.transport.write(input_report))
+        await self.button_input_report.write(self.transport)
 
     async def _command_spi_flash_read(self, output_report):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-        input_report.set_ack(0x90)
-        input_report.sub_0x10_spi_flash_read(output_report)
+        self.button_input_report.set_misc()
+        self.button_input_report.set_ack(0x90)
+        self.button_input_report.sub_0x10_spi_flash_read(output_report)
 
-        asyncio.ensure_future(self.transport.write(input_report))
+        await self.button_input_report.write(self.transport)
 
     async def _command_set_input_report_mode(self, output_report):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-        input_report.set_ack(0x80)
-        input_report.sub_0x03_set_input_report_mode()
+        self.button_input_report.set_misc()
+        self.button_input_report.set_ack(0x80)
+        self.button_input_report.sub_0x03_set_input_report_mode()
 
-        asyncio.ensure_future(self.transport.write(input_report))
+        await self.button_input_report.write(self.transport)
 
     async def _command_trigger_buttons_elapsed_time(self, output_report):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-        input_report.set_ack(0x83)
-        input_report.sub_0x04_trigger_buttons_elapsed_time()
+        self.button_input_report.set_misc()
+        self.button_input_report.set_ack(0x83)
+        self.button_input_report.sub_0x04_trigger_buttons_elapsed_time()
 
-        asyncio.ensure_future(self.transport.write(input_report))
+        await self.button_input_report.write(self.transport)
 
     async def _enable_6axis_sensor(self, output_report):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-        input_report.set_ack(0x80)
+        self.button_input_report.set_misc()
+        self.button_input_report.set_ack(0x80)
 
-        input_report.reply_to_subcommand_id(0x40)
+        self.button_input_report.reply_to_subcommand_id(0x40)
 
-        asyncio.ensure_future(self.transport.write(input_report))
+        await self.button_input_report.write(self.transport)

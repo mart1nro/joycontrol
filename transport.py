@@ -33,7 +33,7 @@ class L2CAP_Transport(asyncio.Transport):
             await self._is_reading.wait()
 
             data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
-            logger.debug(f'received "{data}"')
+            logger.debug(f'received "{list(map(hex, list(data)))}"')
             await self._protocol.report_received(data, self._sock.getpeername())
 
     def is_reading(self) -> bool:
@@ -62,6 +62,9 @@ class L2CAP_Transport(asyncio.Transport):
             data.set_timer(self._input_report_timer)
             self._input_report_timer = (self._input_report_timer + 1) % 256
             _bytes = bytes(data)
+
+            if data.subcommand_is_set:
+                data.clear_sub_command()
         else:
             raise ValueError('data must be bytes or InputReport')
 
