@@ -3,8 +3,8 @@ import logging
 from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
 
-from controller import Controller
-from report import OutputReport, SubCommand, InputReport
+from joycontrol.controller import Controller
+from joycontrol.report import OutputReport, SubCommand, InputReport
 
 logger = logging.getLogger(__name__)
 

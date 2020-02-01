@@ -1,8 +1,8 @@
 import asyncio
 from enum import Enum
 
-from button_state import ButtonState
-from controller import Controller
+from joycontrol.button_state import ButtonState
+from joycontrol.controller import Controller
 
 
 class InputReport:

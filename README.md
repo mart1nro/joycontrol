@@ -9,7 +9,7 @@ Tested with Raspberry Pi 4B Raspbian GNU/Linux 10 (buster)
 
 - Start the program
 ```bash
-sudo python3 run_and_pair_switch.py
+sudo python3 run_test_controller_buttons.py
 ```
 - Open the "Change Grip/Order" menu of the Switch
 - The emulated controller pairs with the Switch and automatically navigates to the "Test Controller Buttons" menu

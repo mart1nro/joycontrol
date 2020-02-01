@@ -1,4 +1,4 @@
-import utils
+from joycontrol import utils
 
 
 class ButtonState:

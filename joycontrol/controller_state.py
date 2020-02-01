@@ -1,7 +1,7 @@
 import asyncio
 
-from button_state import ButtonState
-from protocol import ControllerProtocol
+from joycontrol.button_state import ButtonState
+from joycontrol.protocol import ControllerProtocol
 
 
 class ControllerState:

@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Any
 
-from report import InputReport
+from joycontrol.report import InputReport
 
 logger = logging.getLogger(__name__)
 
