@@ -1,15 +1,15 @@
 import asyncio
 import logging
-import os
 import socket
 
-import joycontrol
+import pkg_resources
+
 from joycontrol import utils
 from joycontrol.device import HidDevice
 from joycontrol.report import InputReport
 from joycontrol.transport import L2CAP_Transport
 
-PROFILE_PATH = os.path.join(os.path.dirname(joycontrol.__file__), 'profile/sdp_record_hid.xml')
+PROFILE_PATH = pkg_resources.resource_filename('joycontrol', 'profile/sdp_record_hid.xml')
 logger = logging.getLogger(__name__)
 
 

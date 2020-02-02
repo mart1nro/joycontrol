@@ -3,30 +3,11 @@ import logging
 import os
 
 from joycontrol import logging_default as log
-from joycontrol.controller_state import ButtonState, ControllerState
+from joycontrol.controller_state import ControllerState, button_push
 from joycontrol.protocol import controller_protocol_factory, Controller
 from joycontrol.server import create_hid_server
 
 logger = logging.getLogger(__name__)
-
-
-async def button_push(controller_state, button, sec=0.1):
-    button_state = ButtonState()
-
-    # push button
-    getattr(button_state, button)()
-
-    # send report
-    controller_state.set_button_state(button_state)
-    await controller_state.send()
-    await asyncio.sleep(sec)
-
-    # release button
-    getattr(button_state, button)()
-
-    # send report
-    controller_state.set_button_state(button_state)
-    await controller_state.send()
 
 
 async def test_controller_buttons(controller_state: ControllerState):

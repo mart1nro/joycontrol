@@ -8,11 +8,12 @@ class ControllerState:
     def __init__(self, transport: asyncio.Transport, protocol: ControllerProtocol):
         super().__init__()
         self.transport = transport
-
         self.protocol = protocol
 
+        self.input_report = self.protocol.get_button_input_report()
+
     async def send(self):
-        await self.protocol.button_input_report.write(self.transport)
+        await self.input_report.write(self.transport)
 
     async def connect(self):
         """
@@ -27,7 +28,7 @@ class ControllerState:
         """
         Sets the button status bytes in the input report
         """
-        self.protocol.button_input_report.set_button_status(button_state)
+        self.input_report.set_button_status(button_state)
 
     def set_stick_state(self):
         """
@@ -36,3 +37,20 @@ class ControllerState:
         raise NotImplementedError()
 
 
+async def button_push(controller_state, button, sec=0.1):
+    button_state = ButtonState()
+
+    # push button
+    getattr(button_state, button)()
+
+    # send report
+    controller_state.set_button_state(button_state)
+    await controller_state.send()
+    await asyncio.sleep(sec)
+
+    # release button
+    getattr(button_state, button)()
+
+    # send report
+    controller_state.set_button_state(button_state)
+    await controller_state.send()
