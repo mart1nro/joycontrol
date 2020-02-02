@@ -137,7 +137,11 @@ class SubCommand(Enum):
     SET_SHIPMENT_STATE = 0x08
     SPI_FLASH_READ = 0x10
     ENABLE_6AXIS_SENSOR = 0x40
-    NOT_IMPLEMENTED = 0xFF
+
+
+class OutputReportID(Enum):
+    SUB_COMMAND = 0x01
+    RUMBLE_ONLY = 0x10
 
 
 class OutputReport:
@@ -146,13 +150,25 @@ class OutputReport:
             raise ValueError('Output reports must start with 0xA2')
         self.data = data
 
+    def get_output_report_id(self):
+        try:
+            return OutputReportID(self.data[1])
+        except ValueError:
+            raise NotImplementedError(f'Output report id {self.data[1]}')
+
+    def get_timer(self):
+        return OutputReportID(self.data[2])
+
+    def get_rumble_data(self):
+        return self.data[3:11]
+
     def get_sub_command(self):
         if len(self.data) < 12:
-            return None, None
+            return None
         try:
-            return self.data[11], SubCommand(self.data[11])
+            return SubCommand(self.data[11])
         except ValueError:
-            return self.data[11], SubCommand.NOT_IMPLEMENTED
+            raise NotImplementedError(f'Sub command id {self.data[11]}')
 
     def __bytes__(self):
         return bytes(self.data)
