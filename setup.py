@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 
 setup(name='joycontrol',
-      version='0.1',
+      version='0.11',
       author='Robert Martin',
       author_email='martinro@informatik.hu-berlin.de',
       description='Emulate Nintendo Switch Controllers over Bluetooth',
@@ -10,7 +10,7 @@ setup(name='joycontrol',
       package_data={'joycontrol': ['profile/sdp_record_hid.xml']},
       zip_safe=False,
       install_requires=[
-          # TODO
+          'hid'
       ]
       )
 

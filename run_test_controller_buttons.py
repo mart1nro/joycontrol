@@ -69,7 +69,7 @@ async def test_controller_buttons(controller_state: ControllerState):
 async def main():
     transport, protocol = await create_hid_server(controller_protocol_factory(Controller.PRO_CONTROLLER), 17, 19)
 
-    await test_controller_buttons(ControllerState(transport, protocol))
+    await test_controller_buttons(protocol.get_controller_state())
 
     logger.info('Stopping communication...')
     await transport.close()

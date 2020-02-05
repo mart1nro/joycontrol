@@ -1,7 +1,5 @@
-import asyncio
 from enum import Enum
 
-from joycontrol.button_state import ButtonState
 from joycontrol.controller import Controller
 
 
@@ -10,26 +8,34 @@ class InputReport:
     Class to create Input Reports. Reference:
     https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md
     """
-    def __init__(self):
-        self.data = [0x00] * 51
-        # all input reports are prepended with 0xA1
-        self.data[0] = 0xA1
-
-        self.subcommand_is_set = False
-
-        self.is_writing = None
+    def __init__(self, data=None):
+        if data is None:
+            # TODO: not enough space for NFC/IR data input report
+            self.data = [0x00] * 51
+            # all input reports are prepended with 0xA1
+            self.data[0] = 0xA1
+        else:
+            if data[0] != 0xA1:
+                raise ValueError('Input reports must start with 0xA1')
+            self.data = data
 
     def clear_sub_command(self):
+        """
+        Clear sub command reply data of 0x21 input reports
+        """
         for i in range(14, 51):
             self.data[i] = 0x00
-        self.subcommand_is_set = False
 
     def set_input_report_id(self, _id):
         """
         :param _id: e.g. 0x21 Standard input reports used for sub command replies
+                         0x30 Input reports with IMU data instead of sub command replies
                          etc... (TODO)
         """
         self.data[1] = _id
+
+    def get_input_report_id(self):
+        return self.data[1]
 
     def set_timer(self, timer):
         """
@@ -41,7 +47,7 @@ class InputReport:
         # battery level + connection info
         self.data[3] = 0x8E
 
-    def set_button_status(self, button_status: ButtonState):
+    def set_button_status(self, button_status):
         """
         Sets the button status bytes
         """
@@ -72,7 +78,18 @@ class InputReport:
         """
         self.data[14] = ack
 
-    def sub_0x02_device_info(self, mac, fm_version=(0x03, 0x48), controller=Controller.JOYCON_L):
+    def set_6axis_data(self):
+        """
+        Set accelerator and gyro of 0x30 input reports
+        """
+        # HACK: Set all 0 for now
+        for i in range(14, 50):
+            self.data[i] = 0x00
+
+    def reply_to_subcommand_id(self, id_):
+        self.data[15] = id_
+
+    def sub_0x02_device_info(self, mac, fm_version=(0x04, 0x00), controller=Controller.JOYCON_L):
         """
         Sub command 0x02 request device info response.
 
@@ -96,38 +113,22 @@ class InputReport:
         self.data[offset + 10] = 0x01
         self.data[offset + 11] = 0x01
 
-    def reply_to_subcommand_id(self, id_):
-        self.subcommand_is_set = True
-        self.data[15] = id_
-
-    def sub_0x08_shipment(self):
-        self.reply_to_subcommand_id(0x08)
-
     def sub_0x10_spi_flash_read(self, output_report):
         self.reply_to_subcommand_id(0x10)
         self.data[16:18] = output_report.data[12:14]
 
-    def sub_0x03_set_input_report_mode(self):
-        self.reply_to_subcommand_id(0x03)
-
     def sub_0x04_trigger_buttons_elapsed_time(self):
         self.reply_to_subcommand_id(0x04)
-
         # TODO
         blub = [0x00, 0xCC, 0x00, 0xEE, 0x00, 0xFF]
         self.data[16:22] = blub
 
-    async def write(self, transport):
-        if self.is_writing is None:
-            self.is_writing = asyncio.ensure_future(transport.write(self))
-        await self.is_writing
-        self.is_writing = None
-
     def __bytes__(self):
-        if self.subcommand_is_set:
-            return bytes(self.data)
+        _id = self.get_input_report_id()
+        if _id == 0x21:
+            return bytes(self.data[:51])
         else:
-            return bytes(self.data[:15])
+            return bytes(self.data)
 
 
 class SubCommand(Enum):
@@ -136,7 +137,10 @@ class SubCommand(Enum):
     TRIGGER_BUTTONS_ELAPSED_TIME = 0x04
     SET_SHIPMENT_STATE = 0x08
     SPI_FLASH_READ = 0x10
+    SET_NFC_IR_MCU_CONFIG = 0x21
+    SET_PLAYER_LIGHTS = 0x30
     ENABLE_6AXIS_SENSOR = 0x40
+    ENABLE_VIBRATION = 0x48
 
 
 class OutputReportID(Enum):
@@ -154,7 +158,7 @@ class OutputReport:
         try:
             return OutputReportID(self.data[1])
         except ValueError:
-            raise NotImplementedError(f'Output report id {self.data[1]}')
+            raise NotImplementedError(f'Output report id {hex(self.data[1])} not implemented')
 
     def get_timer(self):
         return OutputReportID(self.data[2])
@@ -168,7 +172,7 @@ class OutputReport:
         try:
             return SubCommand(self.data[11])
         except ValueError:
-            raise NotImplementedError(f'Sub command id {self.data[11]}')
+            raise NotImplementedError(f'Sub command id {hex(self.data[11])} not implemented')
 
     def __bytes__(self):
         return bytes(self.data)

@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import struct
+import time
 from typing import Any
 
 from joycontrol.report import InputReport
@@ -8,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, l2cap_socket, read_buffer_size) -> None:
+    def __init__(self, loop, protocol, l2cap_socket, read_buffer_size, capture_file=None) -> None:
         self._loop = loop
         self._protocol = protocol
 
@@ -28,12 +30,21 @@ class L2CAP_Transport(asyncio.Transport):
 
         self._input_report_timer = 0x00
 
+        self._capture_file = capture_file
+
     async def _read(self):
         while True:
             await self._is_reading.wait()
 
             data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
-            logger.debug(f'received "{list(map(hex, list(data)))}"')
+
+            if self._capture_file is not None:
+                # write data to log file
+                _time = struct.pack('d', time.time())
+                size = struct.pack('i', len(data))
+                self._capture_file.write(_time + size + data)
+
+            #logger.debug(f'received "{list(data)}"')
             await self._protocol.report_received(data, self._sock.getpeername())
 
     def is_reading(self) -> bool:
@@ -62,13 +73,16 @@ class L2CAP_Transport(asyncio.Transport):
             data.set_timer(self._input_report_timer)
             self._input_report_timer = (self._input_report_timer + 1) % 256
             _bytes = bytes(data)
-
-            if data.subcommand_is_set:
-                data.clear_sub_command()
         else:
             raise ValueError('data must be bytes or InputReport')
 
-        logger.debug(f'sending "{_bytes}"')
+        if self._capture_file is not None:
+            # write data to log file
+            _time = struct.pack('d', time.time())
+            size = struct.pack('i', len(_bytes))
+            self._capture_file.write(_time + size + _bytes)
+
+        #logger.debug(f'sending "{_bytes}"')
         await self._loop.sock_sendall(self._sock, _bytes)
 
     def abort(self) -> None:
