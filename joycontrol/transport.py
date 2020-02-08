@@ -59,12 +59,6 @@ class L2CAP_Transport(asyncio.Transport):
     def set_read_buffer_size(self, size):
         self._read_buffer_size = size
 
-    def set_write_buffer_limits(self, high: int = ..., low: int = ...) -> None:
-        super().set_write_buffer_limits(high, low)
-
-    def get_write_buffer_size(self) -> int:
-        return super().get_write_buffer_size()
-
     async def write(self, data: Any) -> None:
         if isinstance(data, bytes):
             _bytes = data

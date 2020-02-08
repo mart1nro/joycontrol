@@ -26,6 +26,12 @@ class InputReport:
         for i in range(14, 51):
             self.data[i] = 0x00
 
+    def get_sub_command_reply_data(self):
+        if len(self.data) < 50:
+            raise ValueError('Not enough data')
+
+        return self.data[16:51]
+
     def set_input_report_id(self, _id):
         """
         :param _id: e.g. 0x21 Standard input reports used for sub command replies
@@ -39,7 +45,7 @@ class InputReport:
 
     def set_timer(self, timer):
         """
-        Input report timer (0x00-0xFF), usually set by the transport
+        Input report timer [0x00-0xFF], usually set by the transport
         """
         self.data[2] = timer % 256
 
@@ -78,6 +84,9 @@ class InputReport:
         """
         self.data[14] = ack
 
+    def get_ack(self):
+        return self.data[14]
+
     def set_6axis_data(self):
         """
         Set accelerator and gyro of 0x30 input reports
@@ -88,6 +97,14 @@ class InputReport:
 
     def reply_to_subcommand_id(self, id_):
         self.data[15] = id_
+
+    def get_reply_to_subcommand_id(self):
+        if len(self.data) < 16:
+            return None
+        try:
+            return SubCommand(self.data[15])
+        except ValueError:
+            raise NotImplementedError(f'Sub command id {hex(self.data[11])} not implemented')
 
     def sub_0x02_device_info(self, mac, fm_version=(0x04, 0x00), controller=Controller.JOYCON_L):
         """
@@ -113,9 +130,21 @@ class InputReport:
         self.data[offset + 10] = 0x01
         self.data[offset + 11] = 0x01
 
-    def sub_0x10_spi_flash_read(self, output_report):
+    def sub_0x10_spi_flash_read(self, offset, size, data):
+        if len(data) != size:
+            raise ValueError(f'Length of data {len(data)} does not match size {size}')
+        if size > 0x1D:
+            raise ValueError(f'Size can not exceed {0x1D}')
+
         self.reply_to_subcommand_id(0x10)
-        self.data[16:18] = output_report.data[12:14]
+
+        # write offset to data
+        for i in range(16, 16 + 4):
+            self.data[i] = offset % 0x100
+            offset = offset // 0x100
+
+        self.data[20] = size
+        self.data[21:21+len(data)] = data
 
     def sub_0x04_trigger_buttons_elapsed_time(self):
         self.reply_to_subcommand_id(0x04)
@@ -149,7 +178,11 @@ class OutputReportID(Enum):
 
 
 class OutputReport:
-    def __init__(self, data):
+    def __init__(self, data=None):
+        if data is None:
+            data = 50 * [0x00]
+            data[0] = 0xA2
+
         if data[0] != 0xA2:
             raise ValueError('Output reports must start with 0xA2')
         self.data = data
@@ -160,8 +193,20 @@ class OutputReport:
         except ValueError:
             raise NotImplementedError(f'Output report id {hex(self.data[1])} not implemented')
 
+    def set_output_report_id(self, _id):
+        if isinstance(_id, OutputReportID):
+            self.data[1] = _id.value
+        else:
+            self.data[1] = _id
+
     def get_timer(self):
         return OutputReportID(self.data[2])
+
+    def set_timer(self, timer):
+        """
+        Output report timer [0x0 - 0xF]
+        """
+        self.data[2] = timer % 0x10
 
     def get_rumble_data(self):
         return self.data[3:11]
@@ -173,6 +218,38 @@ class OutputReport:
             return SubCommand(self.data[11])
         except ValueError:
             raise NotImplementedError(f'Sub command id {hex(self.data[11])} not implemented')
+
+    def get_sub_command_data(self):
+        if len(self.data) < 13:
+            return None
+        return self.data[12:]
+
+    def set_sub_command(self, _id):
+        if isinstance(_id, SubCommand):
+            self.data[11] = _id.value
+        else:
+            self.data[11] = _id
+
+    def sub_0x10_spi_flash_read(self, offset, size):
+        """
+        Creates output report data with spi flash read sub command.
+        :param offset: start byte of the spi flash to read in [0x00, 0x80000)
+        :param size: size of data to be read in [0x00, 0x1D]
+        """
+        if size > 0x1D:
+            raise ValueError(f'Size read can not exceed {0x1D}')
+        if offset+size > 0x80000:
+            raise ValueError(f'Given address range exceeds max address {0x80000-1}')
+
+        self.set_output_report_id(OutputReportID.SUB_COMMAND)
+        self.set_sub_command(SubCommand.SPI_FLASH_READ)
+
+        # write offset to data
+        for i in range(12, 12+4):
+            self.data[i] = offset % 0x100
+            offset = offset // 0x100
+
+        self.data[16] = size
 
     def __bytes__(self):
         return bytes(self.data)

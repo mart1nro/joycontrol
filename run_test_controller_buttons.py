@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 import os
@@ -66,8 +67,14 @@ async def test_controller_buttons(controller_state: ControllerState):
             await asyncio.sleep(0.1)
 
 
-async def main():
-    transport, protocol = await create_hid_server(controller_protocol_factory(Controller.PRO_CONTROLLER), 17, 19)
+async def _main(args):
+    spi_flash = None
+    if args.spi_flash:
+        with open(args.spi_flash, 'rb') as spi_flash_file:
+            spi_flash = spi_flash_file.read()
+
+    factory = controller_protocol_factory(Controller.PRO_CONTROLLER, spi_flash=spi_flash)
+    transport, protocol = await create_hid_server(factory, 17, 19)
 
     await test_controller_buttons(protocol.get_controller_state())
 
@@ -80,8 +87,12 @@ if __name__ == '__main__':
     if not os.geteuid() == 0:
         raise PermissionError('Script must be run as root!')
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--spi_flash')
+    args = parser.parse_args()
+
     # setup logging
     log.configure()
 
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    loop.run_until_complete(_main(args))

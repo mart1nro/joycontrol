@@ -10,15 +10,19 @@ from joycontrol.report import OutputReport, SubCommand, InputReport, OutputRepor
 logger = logging.getLogger(__name__)
 
 
-def controller_protocol_factory(controller: Controller):
+def controller_protocol_factory(controller: Controller, spi_flash=None):
     def create_controller_protocol():
-        return ControllerProtocol(controller)
+        return ControllerProtocol(controller, spi_flash=spi_flash)
     return create_controller_protocol
 
 
 class ControllerProtocol(BaseProtocol):
-    def __init__(self, controller: Controller):
+    def __init__(self, controller: Controller, spi_flash=None):
         self.controller = controller
+        if spi_flash is not None:
+            self.spi_flash = list(spi_flash)
+        else:
+            self.spi_flash = None
 
         self.transport = None
 
@@ -34,7 +38,7 @@ class ControllerProtocol(BaseProtocol):
         self.sig_wait_player_lights = asyncio.Event()
 
     async def write(self, input_report: InputReport):
-        # set button and TODO: stick date
+        # set button and TODO: stick data
         if self._controller_state.button_state is not None:
             input_report.set_button_status(self._controller_state.button_state)
         self._controller_state.sig_is_send.set()
@@ -106,33 +110,37 @@ class ControllerProtocol(BaseProtocol):
                 raise ValueError('Received output report does not contain a sub command')
 
             logging.info(f'received output report - Sub command {sub_command}')
+
+            sub_command_data = report.get_sub_command_data()
+            assert sub_command_data is not None
+
             # answer to sub command
             if sub_command == SubCommand.REQUEST_DEVICE_INFO:
-                await self._command_request_device_info(report)
+                await self._command_request_device_info(sub_command_data)
 
             elif sub_command == SubCommand.SET_SHIPMENT_STATE:
-                await self._command_set_shipment_state(report)
+                await self._command_set_shipment_state(sub_command_data)
 
             elif sub_command == SubCommand.SPI_FLASH_READ:
-                await self._command_spi_flash_read(report)
+                await self._command_spi_flash_read(sub_command_data)
 
             elif sub_command == SubCommand.SET_INPUT_REPORT_MODE:
-                await self._command_set_input_report_mode(report)
+                await self._command_set_input_report_mode(sub_command_data)
 
             elif sub_command == SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME:
-                await self._command_trigger_buttons_elapsed_time(report)
+                await self._command_trigger_buttons_elapsed_time(sub_command_data)
 
             elif sub_command == SubCommand.ENABLE_6AXIS_SENSOR:
-                await self._command_enable_6axis_sensor(report)
+                await self._command_enable_6axis_sensor(sub_command_data)
 
             elif sub_command == SubCommand.ENABLE_VIBRATION:
-                await self._command_enable_vibration(report)
+                await self._command_enable_vibration(sub_command_data)
 
             elif sub_command == SubCommand.SET_NFC_IR_MCU_CONFIG:
-                await self._command_set_nfc_ir_mcu_config(report)
+                await self._command_set_nfc_ir_mcu_config(sub_command_data)
 
             elif sub_command == SubCommand.SET_PLAYER_LIGHTS:
-                await self._command_set_player_lights(report)
+                await self._command_set_player_lights(sub_command_data)
 
             else:
                 logger.warning(f'Sub command 0x{sub_command.value:02x} not implemented - ignoring')
@@ -141,7 +149,7 @@ class ControllerProtocol(BaseProtocol):
         else:
             logger.warning(f'Output report {output_report_id} not implemented - ignoring')
 
-    async def _command_request_device_info(self, output_report):
+    async def _command_request_device_info(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -155,7 +163,7 @@ class ControllerProtocol(BaseProtocol):
 
         await self.write(input_report)
 
-    async def _command_set_shipment_state(self, output_report):
+    async def _command_set_shipment_state(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -165,18 +173,33 @@ class ControllerProtocol(BaseProtocol):
 
         await self.write(input_report)
 
-    async def _command_spi_flash_read(self, output_report):
+    async def _command_spi_flash_read(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
 
         input_report.set_ack(0x90)
-        input_report.sub_0x10_spi_flash_read(output_report)
+
+        # parse offset
+        offset = 0
+        digit = 1
+        for i in range(4):
+            offset += sub_command_data[i] * digit
+            digit *= 0x100
+
+        size = sub_command_data[4]
+
+        if self.spi_flash is not None:
+            spi_flash_data = self.spi_flash[offset: offset+size]
+            input_report.sub_0x10_spi_flash_read(offset, size, spi_flash_data)
+        else:
+            spi_flash_data = size * [0x00]
+            input_report.sub_0x10_spi_flash_read(offset, size, spi_flash_data)
 
         await self.write(input_report)
 
-    async def _command_set_input_report_mode(self, output_report):
-        if output_report.data[12] == 0x30:
+    async def _command_set_input_report_mode(self, sub_command_data):
+        if sub_command_data[0] == 0x30:
             logger.info('Setting input report mode to 0x30...')
             # start sending 0x30 input reports
             assert self._0x30_input_report_sender is None
@@ -191,9 +214,9 @@ class ControllerProtocol(BaseProtocol):
 
             await self.write(input_report)
         else:
-            logger.error(f'input report mode {output_report.data[12]} not implemented - ignoring request')
+            logger.error(f'input report mode {sub_command_data[0]} not implemented - ignoring request')
 
-    async def _command_trigger_buttons_elapsed_time(self, output_report):
+    async def _command_trigger_buttons_elapsed_time(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -203,7 +226,7 @@ class ControllerProtocol(BaseProtocol):
 
         await self.write(input_report)
 
-    async def _command_enable_6axis_sensor(self, output_report):
+    async def _command_enable_6axis_sensor(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -213,7 +236,7 @@ class ControllerProtocol(BaseProtocol):
 
         await self.write(input_report)
 
-    async def _command_enable_vibration(self, output_report):
+    async def _command_enable_vibration(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -223,7 +246,7 @@ class ControllerProtocol(BaseProtocol):
 
         await self.write(input_report)
 
-    async def _command_set_nfc_ir_mcu_config(self, output_report):
+    async def _command_set_nfc_ir_mcu_config(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -236,7 +259,7 @@ class ControllerProtocol(BaseProtocol):
 
         await self.write(input_report)
 
-    async def _command_set_player_lights(self, output_report):
+    async def _command_set_player_lights(self, sub_command_data):
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
