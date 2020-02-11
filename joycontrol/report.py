@@ -26,6 +26,10 @@ class InputReport:
         for i in range(14, 51):
             self.data[i] = 0x00
 
+    def get_stick_data(self):
+        # TODO: Not every input report has stick data
+        return self.data[7:13]
+
     def get_sub_command_reply_data(self):
         if len(self.data) < 50:
             raise ValueError('Not enough data')
@@ -58,6 +62,13 @@ class InputReport:
         Sets the button status bytes
         """
         self.data[4:7] = iter(button_status)
+
+    def set_stick_status(self, left_stick, right_stick):
+        """
+        Sets the joystick status bytes
+        """
+        self.data[7:10] = bytes(left_stick)
+        self.data[10:13] = bytes(right_stick)
 
     def set_left_analog_stick(self):
         """

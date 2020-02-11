@@ -174,7 +174,7 @@ if __name__ == '__main__':
         raise PermissionError('Script must be run as root!')
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--output')
+    parser.add_argument('output')
     args = parser.parse_args()
 
     # setup logging

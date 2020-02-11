@@ -5,42 +5,52 @@ from typing import Optional, Union, Tuple, Text
 
 from joycontrol.controller import Controller
 from joycontrol.controller_state import ControllerState
+from joycontrol.memory import FlashMemory
 from joycontrol.report import OutputReport, SubCommand, InputReport, OutputReportID
 
 logger = logging.getLogger(__name__)
 
 
 def controller_protocol_factory(controller: Controller, spi_flash=None):
+    if isinstance(spi_flash, bytes):
+        spi_flash = FlashMemory(spi_flash_memory_data=spi_flash)
+
     def create_controller_protocol():
         return ControllerProtocol(controller, spi_flash=spi_flash)
     return create_controller_protocol
 
 
 class ControllerProtocol(BaseProtocol):
-    def __init__(self, controller: Controller, spi_flash=None):
+    def __init__(self, controller: Controller, spi_flash: FlashMemory = None):
         self.controller = controller
-        if spi_flash is not None:
-            self.spi_flash = list(spi_flash)
-        else:
-            self.spi_flash = None
+        self.spi_flash = spi_flash
 
         self.transport = None
 
         self._data_received = asyncio.Event()
 
-        self._controller_state = ControllerState(self)
+        self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
 
         self._pending_write = None
         self._pending_input_report = None
 
         self._0x30_input_report_sender = None
 
-        self.sig_wait_player_lights = asyncio.Event()
+        self.sig_set_player_lights = asyncio.Event()
 
     async def write(self, input_report: InputReport):
-        # set button and TODO: stick data
-        if self._controller_state.button_state is not None:
-            input_report.set_button_status(self._controller_state.button_state)
+        # set button and stick data
+        input_report.set_button_status(self._controller_state.button_state)
+        if self._controller_state.l_stick_state is None:
+            l_stick = [0x00, 0x00, 0x00]
+        else:
+            l_stick = self._controller_state.l_stick_state
+        if self._controller_state.r_stick_state is None:
+            r_stick = [0x00, 0x00, 0x00]
+        else:
+            r_stick = self._controller_state.r_stick_state
+        input_report.set_stick_status(l_stick, r_stick)
+
         self._controller_state.sig_is_send.set()
 
         await self.transport.write(input_report)
@@ -269,4 +279,4 @@ class ControllerProtocol(BaseProtocol):
 
         await self.write(input_report)
 
-        self.sig_wait_player_lights.set()
+        self.sig_set_player_lights.set()
