@@ -19,10 +19,20 @@ class L2CAP_Transport(asyncio.Transport):
 
         self._extra_info = {
             'peername': self._sock.getpeername(),
-            'sockname': self._sock.getsockname()
+            'sockname': self._sock.getsockname(),
+            'socket': self._sock
         }
 
-        self._read_thread = asyncio.ensure_future(self._read())
+        self._read_thread = asyncio.ensure_future(self._reader())
+
+        # create callback to check for exceptions
+        def callback(future):
+            try:
+                future.result()
+            except Exception as err:
+                logger.exception(err)
+
+        self._read_thread.add_done_callback(callback)
 
         self._is_closing = False
         self._is_reading = asyncio.Event()
@@ -32,28 +42,42 @@ class L2CAP_Transport(asyncio.Transport):
 
         self._capture_file = capture_file
 
-    async def _read(self):
+    async def _reader(self):
         while True:
             await self._is_reading.wait()
 
-            data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
-
-            if self._capture_file is not None:
-                # write data to log file
-                _time = struct.pack('d', time.time())
-                size = struct.pack('i', len(data))
-                self._capture_file.write(_time + size + data)
+            data = await self.read()
 
             #logger.debug(f'received "{list(data)}"')
             await self._protocol.report_received(data, self._sock.getpeername())
 
+    async def read(self):
+        data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
+
+        if self._capture_file is not None:
+            # write data to log file
+            _time = struct.pack('d', time.time())
+            size = struct.pack('i', len(data))
+            self._capture_file.write(_time + size + data)
+
+        return data
+
     def is_reading(self) -> bool:
+        """
+        :returns True if the reader is running
+        """
         return self._is_reading.is_set()
 
     def pause_reading(self) -> None:
+        """
+        Pauses the reader
+        """
         self._is_reading.clear()
 
     def resume_reading(self) -> None:
+        """
+        Resumes the reader
+        """
         self._is_reading.set()
 
     def set_read_buffer_size(self, size):

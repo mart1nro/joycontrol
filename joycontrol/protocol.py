@@ -72,26 +72,40 @@ class ControllerProtocol(BaseProtocol):
     def error_received(self, exc: Exception) -> None:
         raise NotImplementedError()
 
-    async def send_0x30_input_reports(self):
+    async def input_report_mode_0x30(self):
+        if self.transport.is_reading():
+            raise ValueError('Transport must be paused in 0x30 input report mode')
+
         input_report = InputReport()
         input_report.set_input_report_id(0x30)
         input_report.set_misc()
 
+        reader = asyncio.ensure_future(self.transport.read())
+
         while True:
-            # TODO: set sensor data
-            input_report.set_6axis_data()
+            # send state at 60Hz
+            await asyncio.sleep(1 / 60)
 
-            await self.write(input_report)
+            reply_send = False
+            if reader.done():
+                data = await reader
+                reader = asyncio.ensure_future(self.transport.read())
 
-            """
-            if self.controller == Controller.PRO_CONTROLLER:
-                # send state at 120Hz if Pro Controller
-                await asyncio.sleep(1 / 120)
-            else:
-                # send state at 60Hz
-                await asyncio.sleep(1 / 60)
-            """
-            await asyncio.sleep(1 / 30)
+                try:
+                    report = OutputReport(list(data))
+                    output_report_id = report.get_output_report_id()
+
+                    if output_report_id == OutputReportID.SUB_COMMAND:
+                        reply_send = await self._reply_to_sub_command(report)
+                except ValueError as v_err:
+                    logger.warning(f'Report parsing error "{v_err}" - IGNORE')
+                except NotImplementedError as err:
+                    logger.warning(err)
+
+            if not reply_send:
+                # write 0x30 input report. TODO: set some sensor data
+                input_report.set_6axis_data()
+                await self.write(input_report)
 
     async def report_received(self, data: Union[bytes, Text], addr: Tuple[str, int]) -> None:
         self._data_received.set()
@@ -109,21 +123,29 @@ class ControllerProtocol(BaseProtocol):
             return
 
         if output_report_id == OutputReportID.SUB_COMMAND:
-            # classify sub command
-            try:
-                sub_command = report.get_sub_command()
-            except NotImplementedError as err:
-                logger.warning(err)
-                return
+            await self._reply_to_sub_command(report)
+        #elif output_report_id == OutputReportID.RUMBLE_ONLY:
+        #    pass
+        else:
+            logger.warning(f'Output report {output_report_id} not implemented - ignoring')
 
-            if sub_command is None:
-                raise ValueError('Received output report does not contain a sub command')
+    async def _reply_to_sub_command(self, report):
+        # classify sub command
+        try:
+            sub_command = report.get_sub_command()
+        except NotImplementedError as err:
+            logger.warning(err)
+            return False
 
-            logging.info(f'received output report - Sub command {sub_command}')
+        if sub_command is None:
+            raise ValueError('Received output report does not contain a sub command')
 
-            sub_command_data = report.get_sub_command_data()
-            assert sub_command_data is not None
+        logging.info(f'received output report - Sub command {sub_command}')
 
+        sub_command_data = report.get_sub_command_data()
+        assert sub_command_data is not None
+
+        try:
             # answer to sub command
             if sub_command == SubCommand.REQUEST_DEVICE_INFO:
                 await self._command_request_device_info(sub_command_data)
@@ -149,15 +171,18 @@ class ControllerProtocol(BaseProtocol):
             elif sub_command == SubCommand.SET_NFC_IR_MCU_CONFIG:
                 await self._command_set_nfc_ir_mcu_config(sub_command_data)
 
+            elif sub_command == SubCommand.SET_NFC_IR_MCU_STATE:
+                await self._command_set_nfc_ir_mcu_state(sub_command_data)
+
             elif sub_command == SubCommand.SET_PLAYER_LIGHTS:
                 await self._command_set_player_lights(sub_command_data)
-
             else:
                 logger.warning(f'Sub command 0x{sub_command.value:02x} not implemented - ignoring')
-        #elif output_report_id == OutputReportID.RUMBLE_ONLY:
-        #    pass
-        else:
-            logger.warning(f'Output report {output_report_id} not implemented - ignoring')
+                return False
+        except Exception as err:
+            logger.error(f'Failed to answer {sub_command} - {err}')
+            return False
+        return True
 
     async def _command_request_device_info(self, sub_command_data):
         input_report = InputReport()
@@ -211,9 +236,6 @@ class ControllerProtocol(BaseProtocol):
     async def _command_set_input_report_mode(self, sub_command_data):
         if sub_command_data[0] == 0x30:
             logger.info('Setting input report mode to 0x30...')
-            # start sending 0x30 input reports
-            assert self._0x30_input_report_sender is None
-            self._0x30_input_report_sender = asyncio.ensure_future(self.send_0x30_input_reports())
 
             input_report = InputReport()
             input_report.set_input_report_id(0x21)
@@ -223,6 +245,20 @@ class ControllerProtocol(BaseProtocol):
             input_report.reply_to_subcommand_id(0x03)
 
             await self.write(input_report)
+
+            # start sending 0x30 input reports
+            if self._0x30_input_report_sender is None:
+                self.transport.pause_reading()
+                self._0x30_input_report_sender = asyncio.ensure_future(self.input_report_mode_0x30())
+
+                # create callback to check for exceptions
+                def callback(future):
+                    try:
+                        future.result()
+                    except Exception as err:
+                        logger.exception(err)
+
+                self._0x30_input_report_sender.add_done_callback(callback)
         else:
             logger.error(f'input report mode {sub_command_data[0]} not implemented - ignoring request')
 
@@ -264,8 +300,29 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_ack(0xA0)
         input_report.reply_to_subcommand_id(SubCommand.SET_NFC_IR_MCU_CONFIG.value)
 
-        for i in range(16, 51):
-            input_report.data[i] = 0xFF
+        # TODO
+        data = [1, 0, 255, 0, 8, 0, 27, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200]
+        for i in range(len(data)):
+            input_report.data[16+i] = data[i]
+
+        await self.write(input_report)
+
+    async def _command_set_nfc_ir_mcu_state(self, sub_command_data):
+        input_report = InputReport()
+        input_report.set_input_report_id(0x21)
+        input_report.set_misc()
+
+        if sub_command_data[0] == 0x01:
+            # 0x01 = Resume
+            input_report.set_ack(0x80)
+            input_report.reply_to_subcommand_id(SubCommand.SET_NFC_IR_MCU_STATE.value)
+        elif sub_command_data[0] == 0x00:
+            # 0x00 = Suspend
+            input_report.set_ack(0x80)
+            input_report.reply_to_subcommand_id(SubCommand.SET_NFC_IR_MCU_STATE.value)
+        else:
+            raise NotImplementedError(f'Argument {sub_command_data[0]} of {SubCommand.SET_NFC_IR_MCU_STATE} '
+                                      f'not implemented.')
 
         await self.write(input_report)
 
