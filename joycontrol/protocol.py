@@ -209,6 +209,10 @@ class ControllerProtocol(BaseProtocol):
         await self.write(input_report)
 
     async def _command_spi_flash_read(self, sub_command_data):
+        """
+        Replies with 0x21 input report containing requested data from the flash memory.
+        :param sub_command_data: input report sub command data bytes
+        """
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -268,7 +272,15 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_misc()
 
         input_report.set_ack(0x83)
-        input_report.sub_0x04_trigger_buttons_elapsed_time()
+        input_report.reply_to_subcommand_id(SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME)
+        # Hack: We assume this command is only used during pairing - Set values so the Switch assigns a player number
+        if self.controller == Controller.PRO_CONTROLLER:
+            input_report.sub_0x04_trigger_buttons_elapsed_time(L_ms=3000, R_ms=3000)
+        elif self.controller in (Controller.JOYCON_L, Controller.JOYCON_R):
+            # TODO: What do we do if we want to pair a combined JoyCon?
+            input_report.sub_0x04_trigger_buttons_elapsed_time(SL_ms=3000, SR_ms=3000)
+        else:
+            raise NotImplementedError(self.controller)
 
         await self.write(input_report)
 

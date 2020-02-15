@@ -106,8 +106,11 @@ class InputReport:
         for i in range(14, 50):
             self.data[i] = 0x00
 
-    def reply_to_subcommand_id(self, id_):
-        self.data[15] = id_
+    def reply_to_subcommand_id(self, _id):
+        if isinstance(_id, SubCommand):
+            self.data[15] = _id.value
+        else:
+            self.data[15] = _id
 
     def get_reply_to_subcommand_id(self):
         if len(self.data) < 16:
@@ -157,16 +160,34 @@ class InputReport:
         self.data[20] = size
         self.data[21:21+len(data)] = data
 
-    def sub_0x04_trigger_buttons_elapsed_time(self):
-        self.reply_to_subcommand_id(0x04)
-        # TODO
-        blub = [0x00, 0xCC, 0x00, 0xEE, 0x00, 0xFF]
-        self.data[16:22] = blub
+    def sub_0x04_trigger_buttons_elapsed_time(self, L_ms=0, R_ms=0, ZL_ms=0, ZR_ms=0, SL_ms=0, SR_ms=0, HOME_ms=0):
+        """
+        Set sub command data for 0x04 reply. Arguments are in ms and must be divisible by 10.
+        """
+        if any(ms > 10*0xffff for ms in (L_ms, R_ms, ZL_ms, ZR_ms, SL_ms, SR_ms, HOME_ms)):
+            raise ValueError(f'Values can not exceed {10*0xffff} ms.')
+
+        def set(offset, ms):
+            # reply data offset
+            sub_command_offset = 16
+            value = int(ms // 10)
+            self.data[sub_command_offset + offset] = 0xff & value
+            self.data[sub_command_offset + offset + 1] = (0xff00 & value) >> 8
+
+        set(0, L_ms)
+        set(2, R_ms)
+        set(4, ZL_ms)
+        set(6, ZR_ms)
+        set(8, SL_ms)
+        set(10, SR_ms)
+        set(12, HOME_ms)
 
     def __bytes__(self):
         _id = self.get_input_report_id()
         if _id == 0x21:
             return bytes(self.data[:51])
+        elif _id == 0x30:
+            return bytes(self.data[:14])
         else:
             return bytes(self.data)
 
