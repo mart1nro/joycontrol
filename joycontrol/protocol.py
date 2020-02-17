@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
 
@@ -51,9 +52,8 @@ class ControllerProtocol(BaseProtocol):
             r_stick = self._controller_state.r_stick_state
         input_report.set_stick_status(l_stick, r_stick)
 
-        self._controller_state.sig_is_send.set()
-
         await self.transport.write(input_report)
+        self._controller_state.sig_is_send.set()
 
     def get_controller_state(self):
         return self._controller_state
@@ -83,8 +83,12 @@ class ControllerProtocol(BaseProtocol):
         reader = asyncio.ensure_future(self.transport.read())
 
         while True:
-            # send state at 60Hz
-            await asyncio.sleep(1 / 60)
+            if self.controller == Controller.PRO_CONTROLLER:
+                # send state at 120Hz
+                await asyncio.sleep(1 / 120)
+            else:
+                # send state at 60Hz
+                await asyncio.sleep(1 / 60)
 
             reply_send = False
             if reader.done():
@@ -102,7 +106,10 @@ class ControllerProtocol(BaseProtocol):
                 except NotImplementedError as err:
                     logger.warning(err)
 
-            if not reply_send:
+            if reply_send:
+                # Hack: Adding a delay here to avoid flooding
+                await asyncio.sleep(0.3)
+            else:
                 # write 0x30 input report. TODO: set some sensor data
                 input_report.set_6axis_data()
                 await self.write(input_report)
