@@ -9,7 +9,7 @@ class InputReport:
     https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md
     """
     def __init__(self, data=None):
-        if data is None:
+        if not data:
             # TODO: not enough space for NFC/IR data input report
             self.data = [0x00] * 51
             # all input reports are prepended with 0xA1
@@ -212,7 +212,7 @@ class OutputReportID(Enum):
 
 class OutputReport:
     def __init__(self, data=None):
-        if data is None:
+        if not data:
             data = 50 * [0x00]
             data[0] = 0xA2
 

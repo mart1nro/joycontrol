@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
 
@@ -93,6 +92,11 @@ class ControllerProtocol(BaseProtocol):
             reply_send = False
             if reader.done():
                 data = await reader
+                if not data:
+                    # disconnect happened
+                    logger.error('No data received (most likely due to a disconnect).')
+                    break
+
                 reader = asyncio.ensure_future(self.transport.read())
 
                 try:
@@ -115,6 +119,11 @@ class ControllerProtocol(BaseProtocol):
                 await self.write(input_report)
 
     async def report_received(self, data: Union[bytes, Text], addr: Tuple[str, int]) -> None:
+        if not data:
+            # disconnect happened
+            logger.error('No data received (most likely due to a disconnect).')
+            return
+
         self._data_received.set()
 
         try:
