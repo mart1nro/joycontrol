@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def test_controller_buttons(controller_state: ControllerState):
     """
-    Goes to the "Test Controller Buttons" menu and presses all buttons
+    Navigates to the "Test Controller Buttons" menu and presses all buttons
     """
     await controller_state.connect()
 
@@ -65,10 +65,14 @@ async def test_controller_buttons(controller_state: ControllerState):
     if 'home' in button_list:
         button_list.remove('home')
 
-    for i in range(10):
-        for button in button_list:
-            await button_push(controller_state, button)
-            await asyncio.sleep(0.1)
+    # push all buttons consecutively until KeyboardInterrupt
+    try:
+        while True:
+            for button in button_list:
+                await button_push(controller_state, button)
+                await asyncio.sleep(0.1)
+    except KeyboardInterrupt:
+        pass
 
 
 async def _main(controller, capture_file=None, spi_flash=None):
