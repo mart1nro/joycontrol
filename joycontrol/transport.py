@@ -86,13 +86,8 @@ class L2CAP_Transport(asyncio.Transport):
     async def write(self, data: Any) -> None:
         if isinstance(data, bytes):
             _bytes = data
-        elif isinstance(data, InputReport):
-            # set timer byte of input report
-            data.set_timer(self._input_report_timer)
-            self._input_report_timer = (self._input_report_timer + 1) % 256
-            _bytes = bytes(data)
         else:
-            raise ValueError('data must be bytes or InputReport')
+            _bytes = bytes(data)
 
         if self._capture_file is not None:
             # write data to log file

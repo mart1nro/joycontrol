@@ -27,19 +27,22 @@ class ControllerProtocol(BaseProtocol):
 
         self.transport = None
 
+        self._input_report_timer = 0x00
+
         self._data_received = asyncio.Event()
 
         self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
-
-        self._pending_write = None
-        self._pending_input_report = None
 
         self._0x30_input_report_sender = None
 
         self.sig_set_player_lights = asyncio.Event()
 
     async def write(self, input_report: InputReport):
-        # set button and stick data
+        """
+        Sets timer byte and current button state in the input report and sends it.
+        Fires sig_is_send event afterwards.
+        """
+        # set button and stick data of input report
         input_report.set_button_status(self._controller_state.button_state)
         if self._controller_state.l_stick_state is None:
             l_stick = [0x00, 0x00, 0x00]
@@ -50,6 +53,10 @@ class ControllerProtocol(BaseProtocol):
         else:
             r_stick = self._controller_state.r_stick_state
         input_report.set_stick_status(l_stick, r_stick)
+
+        # set timer byte of input report
+        input_report.set_timer(self._input_report_timer)
+        self._input_report_timer = (self._input_report_timer + 1) % 0x100
 
         await self.transport.write(input_report)
         self._controller_state.sig_is_send.set()
