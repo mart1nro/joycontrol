@@ -57,6 +57,9 @@ async def create_hid_server(protocol_factory, ctl_psm, itr_psm, capture_file=Non
     logger.info(f'Accepted connection at psm {itr_psm} from {itr_address}')
     assert ctl_address[0] == itr_address[0]
 
+    # stop advertising
+    hid.discoverable(False)
+
     transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50, capture_file=capture_file)
     protocol.connection_made(transport)
 
