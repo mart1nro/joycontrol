@@ -67,20 +67,26 @@ class InputReport:
         """
         Sets the joystick status bytes
         """
-        self.data[7:10] = bytes(left_stick)
-        self.data[10:13] = bytes(right_stick)
+        self.set_left_analog_stick(bytes(left_stick))
+        self.set_right_analog_stick(bytes(right_stick))
 
-    def set_left_analog_stick(self):
+    def set_left_analog_stick(self, left_stick_bytes):
         """
-        TODO
+        Set left analog stick status bytes.
+        :param left_stick_bytes: 3 bytes
         """
-        self.data[7:10] = [0x01, 0x18, 0x80]
+        if len(left_stick_bytes) != 3:
+            raise ValueError('Left stick status data must be exactly 3 bytes!')
+        self.data[7:10] = left_stick_bytes
 
-    def set_right_analog_stick(self):
+    def set_right_analog_stick(self, right_stick_bytes):
         """
-        TODO
+        Set right analog stick status bytes.
+        :param right_stick_bytes: 3 bytes
         """
-        self.data[10:13] = [0x01, 0x18, 0x80]
+        if len(right_stick_bytes) != 3:
+            raise ValueError('Right stick status data must be exactly 3 bytes!')
+        self.data[10:13] = right_stick_bytes
 
     def set_vibrator_input(self):
         """
@@ -101,6 +107,7 @@ class InputReport:
     def set_6axis_data(self):
         """
         Set accelerator and gyro of 0x30 input reports
+        TODO
         """
         # HACK: Set all 0 for now
         for i in range(14, 50):
@@ -215,9 +222,8 @@ class OutputReport:
         if not data:
             data = 50 * [0x00]
             data[0] = 0xA2
-
-        if data[0] != 0xA2:
-            raise ValueError('Output reports must start with 0xA2')
+        elif data[0] != 0xA2:
+            raise ValueError('Output reports must start with a 0xA2 byte!')
         self.data = data
 
     def get_output_report_id(self):
@@ -237,7 +243,7 @@ class OutputReport:
 
     def set_timer(self, timer):
         """
-        Output report timer [0x0 - 0xF]
+        Output report timer in [0x0, 0xF]
         """
         self.data[2] = timer % 0x10
 
@@ -252,16 +258,22 @@ class OutputReport:
         except ValueError:
             raise NotImplementedError(f'Sub command id {hex(self.data[11])} not implemented')
 
+    def set_sub_command(self, _id):
+        if isinstance(_id, SubCommand):
+            self.data[11] = _id.value
+        elif isinstance(_id, int):
+            self.data[11] = _id
+        else:
+            raise ValueError('id must be int or SubCommand')
+
     def get_sub_command_data(self):
         if len(self.data) < 13:
             return None
         return self.data[12:]
 
-    def set_sub_command(self, _id):
-        if isinstance(_id, SubCommand):
-            self.data[11] = _id.value
-        else:
-            self.data[11] = _id
+    def set_sub_command_data(self, data):
+        for i, _byte in enumerate(data):
+            self.data[12+i] = _byte
 
     def sub_0x10_spi_flash_read(self, offset, size):
         """

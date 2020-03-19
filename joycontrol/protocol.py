@@ -27,6 +27,7 @@ class ControllerProtocol(BaseProtocol):
 
         self.transport = None
 
+        # Increases for each input report send, overflows at 0x100
         self._input_report_timer = 0x00
 
         self._data_received = asyncio.Event()
@@ -35,6 +36,7 @@ class ControllerProtocol(BaseProtocol):
 
         self._0x30_input_report_sender = None
 
+        # This event gets triggered once the Switch assigns a player number to the controller and accepts user inputs
         self.sig_set_player_lights = asyncio.Event()
 
     async def write(self, input_report: InputReport):
@@ -61,10 +63,13 @@ class ControllerProtocol(BaseProtocol):
         await self.transport.write(input_report)
         self._controller_state.sig_is_send.set()
 
-    def get_controller_state(self):
+    def get_controller_state(self) -> ControllerState:
         return self._controller_state
 
     async def wait_for_output_report(self):
+        """
+        Blocks until an output report from the Switch is received.
+        """
         self._data_received.clear()
         await self._data_received.wait()
 
@@ -79,11 +84,15 @@ class ControllerProtocol(BaseProtocol):
         raise NotImplementedError()
 
     async def input_report_mode_0x30(self):
+        """
+        Continuously sends 0x30 input reports containing the controller state.
+        """
         if self.transport.is_reading():
             raise ValueError('Transport must be paused in 0x30 input report mode')
 
         input_report = InputReport()
         input_report.set_input_report_id(0x30)
+        input_report.set_vibrator_input()
         input_report.set_misc()
 
         reader = asyncio.ensure_future(self.transport.read())
@@ -110,7 +119,10 @@ class ControllerProtocol(BaseProtocol):
                     report = OutputReport(list(data))
                     output_report_id = report.get_output_report_id()
 
-                    if output_report_id == OutputReportID.SUB_COMMAND:
+                    if output_report_id == OutputReportID.RUMBLE_ONLY:
+                        # TODO
+                        pass
+                    elif output_report_id == OutputReportID.SUB_COMMAND:
                         reply_send = await self._reply_to_sub_command(report)
                 except ValueError as v_err:
                     logger.warning(f'Report parsing error "{v_err}" - IGNORE')
@@ -118,7 +130,7 @@ class ControllerProtocol(BaseProtocol):
                     logger.warning(err)
 
             if reply_send:
-                # Hack: Adding a delay here to avoid flooding
+                # Hack: Adding a delay here to avoid flooding during pairing
                 await asyncio.sleep(0.3)
             else:
                 # write 0x30 input report. TODO: set some sensor data
