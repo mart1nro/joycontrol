@@ -21,11 +21,13 @@ class HidDevice:
         self.adapter = dbus.Interface(obj, 'org.bluez.Adapter1')
         self.properties = dbus.Interface(self.adapter, 'org.freedesktop.DBus.Properties')
 
+    def powered(self, boolean=True):
+        self.properties.Set(self.adapter.dbus_interface, 'Powered', boolean)
+
     def discoverable(self, boolean=True):
-        #self.properties.Set(self.adapter.dbus_interface, 'Powered', True)
         self.properties.Set(self.adapter.dbus_interface, 'Discoverable', boolean)
 
-    async def set_class(self, cls=0x002508):
+    async def set_class(self, cls='0x002508'):
         """
         :param cls: default 0x002508 (Gamepad/joystick device class)
         """

@@ -25,7 +25,9 @@ async def create_hid_server(protocol_factory, ctl_psm, itr_psm, capture_file=Non
     ctl_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
     itr_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
 
-    # for some reason we need to restart bluetooth here, the Switch does not connect to the sockets if we don't...
+    # HACK: To avoid incompatibilities with the bluetooth "input" plugin, we need to restart Bluetooth here.
+    # The Switch does not connect to the sockets if we don't.
+    # For more info see: https://github.com/mart1nro/joycontrol/issues/8
     logger.info('Restarting bluetooth service...')
     await utils.run_system_command('systemctl restart bluetooth.service')
     await asyncio.sleep(1)
@@ -42,6 +44,7 @@ async def create_hid_server(protocol_factory, ctl_psm, itr_psm, capture_file=Non
     protocol = protocol_factory()
 
     hid = HidDevice()
+    hid.powered(True)
     # setting bluetooth adapter name and class to the device we wish to emulate
     await hid.set_name(protocol.controller.device_name())
     await hid.set_class()
