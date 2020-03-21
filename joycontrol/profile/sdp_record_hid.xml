@@ -1,50 +1,50 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <record>
-    <attribute id="0x0001">
+    <attribute id="0x0001"> <!-- Service Class ID List -->
         <sequence>
-            <uuid value="0x1124"/>
+            <uuid value="0x1124"/> <!-- Human Interface Device -->
         </sequence>
     </attribute>
-    <attribute id="0x0004">
+    <attribute id="0x0004"> <!-- Protocol Descriptor List -->
         <sequence>
             <sequence>
-                <uuid value="0x0100"/>
-                <uint16 value="0x0011"/>
+                <uuid value="0x0100"/> <!-- L2CAP -->
+                <uint16 value="0x0011"/> <!-- HIDP -->
             </sequence>
             <sequence>
-                <uuid value="0x0011"/>
+                <uuid value="0x0011"/> <!-- HIDP -->
             </sequence>
         </sequence>
     </attribute>
-    <attribute id="0x0005">
+    <attribute id="0x0005"> <!-- Browse Group List -->
         <sequence>
             <uuid value="0x1002"/>
         </sequence>
     </attribute>
-    <attribute id="0x0006">
+    <attribute id="0x0006"> <!-- Language Based Attribute ID List -->
         <sequence>
             <uint16 value="0x656e"/>
             <uint16 value="0x006a"/>
             <uint16 value="0x0100"/>
         </sequence>
     </attribute>
-    <attribute id="0x0009">
+    <attribute id="0x0009"> <!-- Bluetooth Profile Descriptor List -->
         <sequence>
             <sequence>
-                <uuid value="0x1124"/>
-                <uint16 value="0x0100"/>
+                <uuid value="0x1124"/> <!-- Human Interface Device -->
+                <uint16 value="0x0100"/> <!-- L2CAP -->
             </sequence>
         </sequence>
     </attribute>
-    <attribute id="0x000d">
+    <attribute id="0x000d"> <!-- Additional Protocol Descriptor Lists -->
         <sequence>
             <sequence>
                 <sequence>
-                    <uuid value="0x0100"/>
+                    <uuid value="0x0100"/> <!-- L2CAP -->
                     <uint16 value="0x0013"/>
                 </sequence>
                 <sequence>
-                    <uuid value="0x0011"/>
+                    <uuid value="0x0011"/> <!-- HIDP -->
                 </sequence>
             </sequence>
         </sequence>
