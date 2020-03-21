@@ -27,6 +27,7 @@ sudo python3 run_test_controller_buttons.py
 
 ## Issues
 - When using a Raspberry Pi 4B the connection drops after some time. Might be a hardware issue, since it works fine on my laptop. Using a different bluetooth adapter may help, but haven't tested it yet.
+- Incompatibility with Bluetooth "input" plugin, see [#8](https://github.com/mart1nro/joycontrol/issues/8)
 - ...
 
 
