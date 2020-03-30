@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def test_controller_buttons(controller_state: ControllerState):
     """
-    Navigates to the "Test Controller Buttons" menu and presses all buttons
+    Navigates to the "Test Controller Buttons" menu and presses all buttons.
     """
     await controller_state.connect()
 
@@ -75,9 +75,9 @@ async def test_controller_buttons(controller_state: ControllerState):
         pass
 
 
-async def _main(controller, capture_file=None, spi_flash=None):
+async def _main(controller, capture_file=None, spi_flash=None, device_id=None):
     factory = controller_protocol_factory(controller, spi_flash=spi_flash)
-    transport, protocol = await create_hid_server(factory, 17, 19, capture_file=capture_file)
+    transport, protocol = await create_hid_server(factory, 17, 19, capture_file=capture_file, device_id=device_id)
 
     await test_controller_buttons(protocol.get_controller_state())
 
@@ -95,6 +95,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     #parser.add_argument('controller', help='JOYCON_R, JOYCON_L or PRO_CONTROLLER')
+    parser.add_argument('-d', '--device_id')
     parser.add_argument('-l', '--log')
     parser.add_argument('--spi_flash')
     args = parser.parse_args()
@@ -116,7 +117,6 @@ if __name__ == '__main__':
         with open(args.spi_flash, 'rb') as spi_flash_file:
             spi_flash = spi_flash_file.read()
 
-    # creates file if arg is given
     @contextmanager
     def get_output(path=None):
         """
@@ -131,4 +131,6 @@ if __name__ == '__main__':
 
     with get_output(args.log) as capture_file:
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(_main(controller, capture_file=capture_file, spi_flash=spi_flash))
+        loop.run_until_complete(
+            _main(controller, capture_file=capture_file, spi_flash=spi_flash, device_id=args.device_id)
+        )
