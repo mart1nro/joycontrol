@@ -16,6 +16,7 @@ sudo apt install python3-dbus
 ```bash
 sudo pip3 install .
 ```
+- Disable the bluez "input" plugin, see [#8](https://github.com/mart1nro/joycontrol/issues/8)
 
 ## "Test Controller Buttons" example
 - Run the script
