@@ -36,7 +36,6 @@ class L2CAP_Transport(asyncio.Transport):
 
         self._is_closing = False
         self._is_reading = asyncio.Event()
-        self._is_reading.set()
 
         self._input_report_timer = 0x00
 
@@ -74,7 +73,7 @@ class L2CAP_Transport(asyncio.Transport):
         """
         self._is_reading.clear()
 
-    def resume_reading(self) -> None:
+    def start_reading(self) -> None:
         """
         Resumes the reader
         """

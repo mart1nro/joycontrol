@@ -39,6 +39,11 @@ class ControllerProtocol(BaseProtocol):
         # This event gets triggered once the Switch assigns a player number to the controller and accepts user inputs
         self.sig_set_player_lights = asyncio.Event()
 
+        # Setting this events pauses the controller input report loop
+        self.sig_unpause_input_report_mode_0x30 = asyncio.Event()
+        self.sig_unpause_input_report_mode_0x30.set()
+        self._in_0x30_input_report_mode = False
+
     async def write(self, input_report: InputReport):
         """
         Sets timer byte and current button state in the input report and sends it.
@@ -83,12 +88,27 @@ class ControllerProtocol(BaseProtocol):
     def error_received(self, exc: Exception) -> None:
         raise NotImplementedError()
 
+    def is_in_0x30_input_report_mode(self):
+        return self._in_0x30_input_report_mode
+
+    def pause_input_report_mode_0x30(self):
+        if not self._in_0x30_input_report_mode:
+            raise ValueError("Protocal not in 0x30 input report mode")
+        self.sig_unpause_input_report_mode_0x30.clear()
+
+    def start_input_report_mode_0x30(self):
+        if not self._in_0x30_input_report_mode:
+            raise ValueError("Protocal not in 0x30 input report mode")
+        self.sig_unpause_input_report_mode_0x30.set()
+
     async def input_report_mode_0x30(self):
         """
         Continuously sends 0x30 input reports containing the controller state.
         """
         if self.transport.is_reading():
             raise ValueError('Transport must be paused in 0x30 input report mode')
+        
+        self._in_0x30_input_report_mode = True
 
         input_report = InputReport()
         input_report.set_input_report_id(0x30)
@@ -98,6 +118,8 @@ class ControllerProtocol(BaseProtocol):
         reader = asyncio.ensure_future(self.transport.read())
 
         while True:
+            await self.sig_unpause_input_report_mode_0x30.wait()
+
             if self.controller == Controller.PRO_CONTROLLER:
                 # send state at 120Hz
                 await asyncio.sleep(1 / 120)
