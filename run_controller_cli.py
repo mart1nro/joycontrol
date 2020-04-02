@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import socket
 from contextlib import contextmanager
 
 from joycontrol import logging_default as log
@@ -9,14 +10,24 @@ from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
-from joycontrol.server import create_hid_server
+from joycontrol.server import create_hid_server, run_protocol_on_connection
 
 logger = logging.getLogger(__name__)
 
 
-async def _main(controller, capture_file=None, spi_flash=None, device_id=None):
+async def _main(controller, console_bt_addr=None, capture_file=None, spi_flash=None, device_id=None):
     factory = controller_protocol_factory(controller, spi_flash=spi_flash)
-    transport, protocol = await create_hid_server(factory, 17, 19, capture_file=capture_file, device_id=device_id)
+    ctl_psm, itr_psm = 17, 19
+    if console_bt_addr is None:
+        transport, protocol = await create_hid_server(factory, 
+            ctl_psm=ctl_psm, itr_psm=itr_psm, capture_file=capture_file, device_id=device_id)
+    else:
+        protocol = factory()
+        client_ctl = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+        # client_ctl.setblocking(False)
+        client_ctl.connect((console_bt_addr, ctl_psm))
+        await run_protocol_on_connection(protocol, client_ctl)
+        transport = protocol.transport
 
     controller_state = protocol.get_controller_state()
 
@@ -41,6 +52,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--log')
     parser.add_argument('-d', '--device_id')
     parser.add_argument('--spi_flash')
+    parser.add_argument('--console-bt-addr', type=str, default=None)
     args = parser.parse_args()
 
     if args.controller == 'JOYCON_R':
@@ -73,5 +85,10 @@ if __name__ == '__main__':
     with get_output(args.log) as capture_file:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(
-            _main(controller, capture_file=capture_file, spi_flash=spi_flash, device_id=args.device_id)
+            _main(controller, 
+                console_bt_addr=args.console_bt_addr, 
+                capture_file=capture_file, 
+                spi_flash=spi_flash, 
+                device_id=args.device_id
+            )
         )

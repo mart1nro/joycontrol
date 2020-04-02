@@ -39,7 +39,9 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
     itr_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
     ctl_sock.setblocking(False)
     itr_sock.setblocking(False)
-
+    ctl_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    itr_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
     try:
         hid = HidDevice(device_id=device_id)
 
@@ -94,6 +96,12 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
     # stop advertising
     hid.discoverable(False)
 
+    await run_protocol_on_connection(protocol, client_itr, capture_file=capture_file)
+
+    return protocol.transport, protocol
+
+
+async def run_protocol_on_connection(protocol, client_itr, capture_file=None):
     transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50, capture_file=capture_file)
     protocol.connection_made(transport)
 
@@ -105,5 +113,3 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         await future
     except asyncio.CancelledError:
         pass
-
-    return transport, protocol
