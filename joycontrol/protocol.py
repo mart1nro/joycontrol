@@ -78,9 +78,11 @@ class ControllerProtocol(BaseProtocol):
         self.transport = transport
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
+        # TODO
         raise NotImplementedError()
 
     def error_received(self, exc: Exception) -> None:
+        # TODO
         raise NotImplementedError()
 
     async def input_report_mode_0x30(self):
@@ -288,16 +290,26 @@ class ControllerProtocol(BaseProtocol):
             # start sending 0x30 input reports
             if self._0x30_input_report_sender is None:
                 self.transport.pause_reading()
-                self._0x30_input_report_sender = asyncio.ensure_future(self.input_report_mode_0x30())
 
                 # create callback to check for exceptions
                 def callback(future):
                     try:
                         future.result()
+                    except asyncio.CancelledError:
+                        # Future may be cancelled at anytime
+                        pass
                     except Exception as err:
                         logger.exception(err)
 
+                self._0x30_input_report_sender = asyncio.ensure_future(self.input_report_mode_0x30())
                 self._0x30_input_report_sender.add_done_callback(callback)
+
+                # We have to swap the reader in the future because this function was probably called by it
+                async def set_reader():
+                    await self.transport.set_reader(self._0x30_input_report_sender)
+                    self.transport.resume_reading()
+
+                asyncio.ensure_future(set_reader()).add_done_callback(callback)
         else:
             logger.error(f'input report mode {sub_command_data[0]} not implemented - ignoring request')
 
