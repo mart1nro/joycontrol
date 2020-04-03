@@ -16,10 +16,23 @@ logger = logging.getLogger(__name__)
 
 async def _send_empty_input_reports(transport):
     report = InputReport()
-
     while True:
         await transport.write(report)
         await asyncio.sleep(1)
+
+
+async def _run_protocol_on_connection(protocol, client_itr, capture_file=None):
+    transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50, capture_file=capture_file)
+    protocol.connection_made(transport)
+
+    # send some empty input reports until the Switch decides to reply
+    future = asyncio.ensure_future(_send_empty_input_reports(transport))
+    await protocol.wait_for_output_report()
+    future.cancel()
+    try:
+        await future
+    except asyncio.CancelledError:
+        pass
 
 
 async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=None, capture_file=None):
@@ -96,20 +109,26 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
     # stop advertising
     hid.discoverable(False)
 
-    await run_protocol_on_connection(protocol, client_itr, capture_file=capture_file)
+    await _run_protocol_on_connection(protocol, client_itr, capture_file=capture_file)
 
     return protocol.transport, protocol
 
 
-async def run_protocol_on_connection(protocol, client_itr, capture_file=None):
-    transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50, capture_file=capture_file)
-    protocol.connection_made(transport)
+async def create_reconnection(protocol_factory, console_bt_addr, ctl_psm=17, itr_psm=19, capture_file=None):
+    """Setup a running protocal by reconnecting to a pairsed console.
+    
+    :param console_bt_addr: a bluetooth address for the Switch console.
+    :param *args, **kwargs: see `create_hid_server`, except that `create_reconnection` does not require device_id.
+    :returns: see `create_hid_server`
+    """
+    protocol = protocol_factory()
+    client_ctl = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+    client_itr = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+    client_ctl.connect((console_bt_addr, ctl_psm))
+    client_itr.connect((console_bt_addr, itr_psm))
+    client_ctl.setblocking(False)
+    client_itr.setblocking(False)
 
-    # send some empty input reports until the Switch decides to reply
-    future = asyncio.ensure_future(_send_empty_input_reports(transport))
-    await protocol.wait_for_output_report()
-    future.cancel()
-    try:
-        await future
-    except asyncio.CancelledError:
-        pass
+    await _run_protocol_on_connection(protocol, client_itr)
+    transport = protocol.transport
+    return transport, protocol

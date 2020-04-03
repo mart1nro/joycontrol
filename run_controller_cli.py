@@ -10,7 +10,8 @@ from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
-from joycontrol.server import create_hid_server, run_protocol_on_connection
+from joycontrol.server import create_hid_server, create_reconnection
+from joycontrol.report import InputReport
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +23,9 @@ async def _main(controller, console_bt_addr=None, capture_file=None, spi_flash=N
         transport, protocol = await create_hid_server(factory, 
             ctl_psm=ctl_psm, itr_psm=itr_psm, capture_file=capture_file, device_id=device_id)
     else:
-        protocol = factory()
-        client_ctl = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
-        # client_ctl.setblocking(False)
-        client_ctl.connect((console_bt_addr, ctl_psm))
-        await run_protocol_on_connection(protocol, client_ctl)
-        transport = protocol.transport
+        transport, protocol = await create_reconnection(factory, 
+            console_bt_addr,
+            ctl_psm=ctl_psm, itr_psm=itr_psm, capture_file=capture_file)
 
     controller_state = protocol.get_controller_state()
 
