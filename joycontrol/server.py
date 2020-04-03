@@ -21,22 +21,8 @@ async def _send_empty_input_reports(transport):
         await asyncio.sleep(1)
 
 
-async def _run_protocol_on_connection(protocol, client_itr, capture_file=None):
-    transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50, capture_file=capture_file)
-    protocol.connection_made(transport)
-
-    # send some empty input reports until the Switch decides to reply
-    future = asyncio.ensure_future(_send_empty_input_reports(transport))
-    await protocol.wait_for_output_report()
-    future.cancel()
-    try:
-        await future
-    except asyncio.CancelledError:
-        pass
-
-
-async def create_hid_server(protocol_factory, 
-    ctl_psm=17, itr_psm=19, device_id=None, reconnect_bt_addr=None, capture_file=None):
+async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=None, reconnect_bt_addr=None,
+                            capture_file=None):
     """
     :param protocol_factory: Factory function returning a ControllerProtocol instance
     :param ctl_psm: hid control channel port
@@ -46,10 +32,10 @@ async def create_hid_server(protocol_factory,
                       Bluetooth mac address in string notation of the adapter (e.g. "FF:FF:FF:FF:FF:FF").
                       If None, choose any device.
                       Note: Selection of adapters may currently not work if the bluez "input" plugin is enabled.
-    :param reconnect_bt_addr: the Bluetooth address of the console that was previously connected. Defaults to None.
+    :param reconnect_bt_addr: The Bluetooth address of the console that was previously connected. Defaults to None.
                       If None, a new hid server will be started for the initial paring.
-                      Otherwise, the function assumes an initial pairing with the console was already done and reconnects
-                      to the provided Bluetooth address.
+                      Otherwise, the function assumes an initial pairing with the console was already done
+                      and reconnects to the provided Bluetooth address.
     :param capture_file: opened file to log incoming and outgoing messages
     :returns transport for input reports and protocol which handles incoming output reports
     """
@@ -124,6 +110,17 @@ async def create_hid_server(protocol_factory,
         client_ctl.setblocking(False)
         client_itr.setblocking(False)
 
-    await _run_protocol_on_connection(protocol, client_itr, capture_file=capture_file)
+    # create transport for the established connection and activate the HID protocol
+    transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, 50, capture_file=capture_file)
+    protocol.connection_made(transport)
+
+    # send some empty input reports until the Switch decides to reply
+    future = asyncio.ensure_future(_send_empty_input_reports(transport))
+    await protocol.wait_for_output_report()
+    future.cancel()
+    try:
+        await future
+    except asyncio.CancelledError:
+        pass
 
     return protocol.transport, protocol
