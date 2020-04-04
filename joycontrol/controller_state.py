@@ -45,8 +45,11 @@ class ControllerState:
         return self._spi_flash
 
     async def send(self):
-        self.sig_is_send.clear()
-        await self.sig_is_send.wait()
+        """
+        Invokes protocol.send_controller_state(). Returns after the controller state was send.
+        Raises NotConnected exception if the connection was lost.
+        """
+        await self._protocol.send_controller_state()
 
     async def connect(self):
         """

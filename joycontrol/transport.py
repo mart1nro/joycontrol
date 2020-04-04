@@ -4,21 +4,31 @@ import struct
 import time
 from typing import Any
 
+from joycontrol import utils
+
 logger = logging.getLogger(__name__)
 
 
+class NotConnectedError(ConnectionResetError):
+    pass
+
+
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, l2cap_socket, read_buffer_size, capture_file=None) -> None:
+    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None) -> None:
+        super(L2CAP_Transport, self).__init__()
+
         self._loop = loop
         self._protocol = protocol
 
-        self._sock = l2cap_socket
+        self._itr_sock = itr_sock
+        self._ctr_sock = ctr_sock
+
         self._read_buffer_size = read_buffer_size
 
         self._extra_info = {
-            'peername': self._sock.getpeername(),
-            'sockname': self._sock.getsockname(),
-            'socket': self._sock
+            'peername': self._itr_sock.getpeername(),
+            'sockname': self._itr_sock.getsockname(),
+            'socket': self._itr_sock
         }
 
         self._is_closing = False
@@ -33,10 +43,14 @@ class L2CAP_Transport(asyncio.Transport):
 
     async def _reader(self):
         while True:
-            data = await self.read()
+            try:
+                data = await self.read()
+            except NotConnectedError:
+                self._read_thread = None
+                break
 
             #logger.debug(f'received "{list(data)}"')
-            await self._protocol.report_received(data, self._sock.getpeername())
+            await self._protocol.report_received(data, self._itr_sock.getpeername())
 
     def start_reader(self):
         """
@@ -47,16 +61,8 @@ class L2CAP_Transport(asyncio.Transport):
 
         self._read_thread = asyncio.ensure_future(self._reader())
 
-        # create callback to check for exceptions
-        def callback(future):
-            try:
-                future.result()
-            except asyncio.CancelledError:
-                # Future may be cancelled at anytime
-                pass
-            except Exception as err:
-                logger.exception(err)
-
+        # Create callback in case the reader is failing
+        callback = utils.create_error_check_callback(ignore=asyncio.CancelledError)
         self._read_thread.add_done_callback(callback)
 
     async def set_reader(self, reader: asyncio.Future):
@@ -68,11 +74,15 @@ class L2CAP_Transport(asyncio.Transport):
         """
         if self._read_thread is not None:
             # cancel currently running reader
-            self._read_thread.cancel()
-            try:
-                await self._read_thread
-            except asyncio.CancelledError:
-                pass
+            if self._read_thread.cancel():
+                try:
+                    await self._read_thread
+                except asyncio.CancelledError:
+                    pass
+
+        # Create callback for debugging in case the reader is failing
+        err_callback = utils.create_error_check_callback(ignore=asyncio.CancelledError)
+        reader.add_done_callback(err_callback)
 
         self._read_thread = reader
 
@@ -81,13 +91,19 @@ class L2CAP_Transport(asyncio.Transport):
 
     async def read(self):
         """
-        Read data from the unterlying socket. This function "blocks",
+        Read data from the underlying socket. This function waits,
         if reading is paused using the pause_reading function.
 
         :returns bytes
         """
         await self._is_reading.wait()
-        data = await self._loop.sock_recv(self._sock, self._read_buffer_size)
+        data = await self._loop.sock_recv(self._itr_sock, self._read_buffer_size)
+
+        if not data:
+            # disconnect happened
+            logger.error('No data received.')
+            self._protocol.connection_lost()
+            raise NotConnectedError('No data received.')
 
         if self._capture_file is not None:
             # write data to log file
@@ -105,13 +121,13 @@ class L2CAP_Transport(asyncio.Transport):
 
     def pause_reading(self) -> None:
         """
-        Pauses the reader
+        Pauses any 'read' function calls.
         """
         self._is_reading.clear()
 
     def resume_reading(self) -> None:
         """
-        Resumes the reader
+        Resumes all 'read' function calls.
         """
         self._is_reading.set()
 
@@ -131,10 +147,19 @@ class L2CAP_Transport(asyncio.Transport):
             self._capture_file.write(_time + size + _bytes)
 
         #logger.debug(f'sending "{_bytes}"')
-        await self._loop.sock_sendall(self._sock, _bytes)
+        try:
+            await self._loop.sock_sendall(self._itr_sock, _bytes)
+        except OSError as err:
+            logger.error(err)
+            self._protocol.connection_lost()
+            raise NotConnectedError(err)
+        except ConnectionResetError as err:
+            logger.error(err)
+            self._protocol.connection_lost()
+            raise err
 
     def abort(self) -> None:
-        super().abort()
+        raise NotImplementedError
 
     def get_extra_info(self, name: Any, default=None) -> Any:
         return self._extra_info.get(name, default)
@@ -146,14 +171,19 @@ class L2CAP_Transport(asyncio.Transport):
         """
         Stops reader and closes underlying socket
         """
-        self._is_closing = True
-        self._read_thread.cancel()
-        # wait for reader to cancel
-        try:
-            await self._read_thread
-        except asyncio.CancelledError:
-            pass
-        self._sock.close()
+        if not self._is_closing:
+            # was not already closed
+            self._is_closing = True
+            if self._read_thread.cancel():
+                # wait for reader to cancel
+                try:
+                    await self._read_thread
+                except asyncio.CancelledError:
+                    pass
+
+            # interrupt connection should be closed first
+            self._itr_sock.close()
+            self._ctr_sock.close()
 
     def set_protocol(self, protocol: asyncio.BaseProtocol) -> None:
         self._protocol = protocol
