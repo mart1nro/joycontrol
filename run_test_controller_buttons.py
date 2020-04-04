@@ -2,12 +2,13 @@ import argparse
 import asyncio
 import logging
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 from joycontrol import logging_default as log
 from joycontrol.controller_state import ControllerState, button_push
 from joycontrol.protocol import controller_protocol_factory, Controller
 from joycontrol.server import create_hid_server
+from joycontrol.transport import NotConnectedError
 
 logger = logging.getLogger(__name__)
 
@@ -65,24 +66,26 @@ async def test_controller_buttons(controller_state: ControllerState):
     if 'home' in button_list:
         button_list.remove('home')
 
-    # push all buttons consecutively until KeyboardInterrupt
-    try:
-        while True:
-            for button in button_list:
-                await button_push(controller_state, button)
-                await asyncio.sleep(0.1)
-    except KeyboardInterrupt:
-        pass
+    # push all buttons consecutively
+    while True:
+        for button in button_list:
+            await button_push(controller_state, button)
+            await asyncio.sleep(0.1)
 
 
 async def _main(controller, capture_file=None, spi_flash=None, device_id=None):
     factory = controller_protocol_factory(controller, spi_flash=spi_flash)
     transport, protocol = await create_hid_server(factory, 17, 19, capture_file=capture_file, device_id=device_id)
 
-    await test_controller_buttons(protocol.get_controller_state())
-
-    logger.info('Stopping communication...')
-    await transport.close()
+    try:
+        await test_controller_buttons(protocol.get_controller_state())
+    except KeyboardInterrupt:
+        pass
+    except NotConnectedError:
+        logger.error('Connection was lost.')
+    finally:
+        logger.info('Stopping communication...')
+        await transport.close()
 
 
 if __name__ == '__main__':
@@ -131,6 +134,20 @@ if __name__ == '__main__':
 
     with get_output(args.log) as capture_file:
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+
+        main_function = asyncio.ensure_future(
             _main(controller, capture_file=capture_file, spi_flash=spi_flash, device_id=args.device_id)
         )
+
+        # run main function until keyboard interrupt
+        try:
+            loop.run_until_complete(main_function)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            # make sure main function has a chance to clean up
+            with suppress(asyncio.CancelledError):
+                main_function.cancel()
+                loop.run_until_complete(
+                    main_function
+                )

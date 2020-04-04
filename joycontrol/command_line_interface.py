@@ -4,6 +4,7 @@ import logging
 from aioconsole import ainput
 
 from joycontrol.controller_state import button_push, ControllerState
+from joycontrol.transport import NotConnectedError
 
 logger = logging.getLogger(__name__)
 
@@ -116,4 +117,8 @@ class ControllerCLI:
             if buttons_to_push:
                 await button_push(self.controller_state, *buttons_to_push)
             else:
-                await self.controller_state.send()
+                try:
+                    await self.controller_state.send()
+                except NotConnectedError:
+                    logger.info('Connection was lost.')
+                    return

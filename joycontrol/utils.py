@@ -12,6 +12,25 @@ def flip_bit(value, n):
     return value ^ (1 << n)
 
 
+def create_error_check_callback(ignore=None):
+    """
+    Creates callback causing errors of a finished future to be raised.
+    Useful for debugging futures that are never awaited.
+    :param ignore: Any number of errors to ignore.
+    :returns callback which can be added to a future with future.add_done_callback(...)
+    """
+    def callback(future):
+        if ignore:
+            try:
+                future.result()
+            except ignore:
+                # ignore suppressed errors
+                pass
+        else:
+            future.result()
+    return callback
+
+
 async def run_system_command(cmd):
     proc = await asyncio.create_subprocess_shell(
         cmd,
