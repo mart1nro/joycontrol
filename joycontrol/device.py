@@ -47,6 +47,13 @@ class HidDevice:
         """
         self.properties.Set(self.adapter.dbus_interface, 'Discoverable', boolean)
 
+    def pairable(self, boolean=True):
+        """
+        Make adapter pairable
+        """
+        self.properties.Set(self.adapter.dbus_interface, 'Pairable', boolean)
+
+
     async def set_class(self, cls='0x002508'):
         """
         Sets Bluetooth device class. Requires hciconfig system command.
