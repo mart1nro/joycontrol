@@ -75,6 +75,8 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         itr_sock.listen(1)
 
         hid.powered(True)
+        hid.pairable(True)
+
         # setting bluetooth adapter name and class to the device we wish to emulate
         await hid.set_name(protocol.controller.device_name())
         await hid.set_class()
@@ -100,6 +102,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
 
         # stop advertising
         hid.discoverable(False)
+        hid.pairable(False)
 
     else:
         # Reconnection to reconnect_bt_addr
