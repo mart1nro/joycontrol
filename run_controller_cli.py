@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 from aioconsole import ainput
 
-from joycontrol import logging_default as log
+from joycontrol import logging_default as log, utils
 from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
 from joycontrol.controller_state import ControllerState, button_push
@@ -192,20 +192,7 @@ if __name__ == '__main__':
         with open(args.spi_flash, 'rb') as spi_flash_file:
             spi_flash = FlashMemory(spi_flash_file.read())
 
-    # creates file if arg is given
-    @contextmanager
-    def get_output(path=None):
-        """
-        Opens file if path is given
-        """
-        if path is not None:
-            file = open(path, 'wb')
-            yield file
-            file.close()
-        else:
-            yield None
-
-    with get_output(args.log) as capture_file:
+    with utils.get_output(path=args.log, default=None) as capture_file:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(
             _main(controller,

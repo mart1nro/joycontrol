@@ -11,7 +11,7 @@ from joycontrol.report import OutputReport, InputReport, SubCommand
 
 logger = logging.getLogger(__name__)
 
-
+# TODO: Add Pro Controller
 VENDOR_ID = 1406
 PRODUCT_ID_JL = 8198
 PRODUCT_ID_JR = 8199
