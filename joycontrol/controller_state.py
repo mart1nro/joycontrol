@@ -41,6 +41,9 @@ class ControllerState:
 
         self.sig_is_send = asyncio.Event()
 
+    def get_controller(self):
+        return self._controller
+
     def get_flash_memory(self):
         return self._spi_flash
 
