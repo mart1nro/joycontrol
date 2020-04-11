@@ -28,7 +28,7 @@ The Switch only pairs with new controllers in the "Change Grip/Order" menu.
 Note: If you already connected an emulated controller once, you can use the reconnect option of the script (-r "\<Switch Bluetooth Mac address>").
 This does not require the "Change Grip/Order" menu to be opened. You can find out a paired mac address using the "bluetoothctl" system command.
 
-- After connecting a command line interface is opened. Note: Press \<enter> if you don't see a prompt.
+- After connecting, a command line interface is opened. Note: Press \<enter> if you don't see a prompt.
 
 Call "help" to see a list of available commands.
 
