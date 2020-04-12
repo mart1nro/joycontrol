@@ -11,10 +11,10 @@ from joycontrol.report import OutputReport, InputReport, SubCommand
 
 logger = logging.getLogger(__name__)
 
-# TODO: Add Pro Controller
 VENDOR_ID = 1406
 PRODUCT_ID_JL = 8198
 PRODUCT_ID_JR = 8199
+PRODUCT_ID_PC = 8201
 
 
 class AsyncHID(hid.Device):
@@ -145,14 +145,14 @@ async def dumb_spi_flash(hid_device, output_file=None):
 
 
 async def _main(args, loop):
-    logger.info('Waiting for HID devices... Please connect JoyCon over Bluetooth. '
-                'Note: The bluez "input" plugin needs to be enabled (default)"')
+    logger.info('Waiting for HID devices... Please connect one JoyCon (left OR right), or a Pro Controller over Bluetooth. '
+                'Note: The bluez "input" plugin needs to be enabled (default)')
 
     controller = None
     while controller is None:
         for device in hid.enumerate(0, 0):
             # looking for devices matching Nintendo's vendor id and JoyCon product id
-            if device['vendor_id'] == VENDOR_ID and device['product_id'] in (PRODUCT_ID_JL, PRODUCT_ID_JR):
+            if device['vendor_id'] == VENDOR_ID and device['product_id'] in (PRODUCT_ID_JL, PRODUCT_ID_JR, PRODUCT_ID_PC):
                 controller = device
                 break
         else:
