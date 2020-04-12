@@ -146,7 +146,7 @@ async def dumb_spi_flash(hid_device, output_file=None):
 
 async def _main(args, loop):
     logger.info('Waiting for HID devices... Please connect one JoyCon (left OR right), or a Pro Controller over Bluetooth. '
-                'Note: The bluez "input" plugin needs to be enabled (default)"')
+                'Note: The bluez "input" plugin needs to be enabled (default)')
 
     controller = None
     while controller is None:
