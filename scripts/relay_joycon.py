@@ -60,22 +60,12 @@ class Relay:
             await asyncio.sleep(0)
 
 
-async def _main(capture_file=None):
-    # Creating l2cap sockets
-    ctl_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
-    itr_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
-
-    # HACK: To circumvent incompatibilities with the bluetooth "input" plugin, we need to restart Bluetooth here.
-    # The Switch does not connect to the sockets if we don't.
-    # For more info see: https://github.com/mart1nro/joycontrol/issues/8
-    logger.info('Restarting bluetooth service...')
-    await utils.run_system_command('systemctl restart bluetooth.service')
-    await asyncio.sleep(1)
-
-    logger.info('Waiting for HID devices... Please connect one JoyCon (left OR right), '
-                'or a Pro Controller over Bluetooth. Note: The bluez "input" plugin needs to be enabled (default)')
+async def get_hid_controller():
+    logger.info('Waiting for HID devices... Please connect JoyCon over bluetooth. '
+                'Note: The bluez "input" plugin needs to be enabled (default)"')
 
     controller = None
+
     while controller is None:
         for device in hid.enumerate(0, 0):
             # looking for devices matching Nintendo's vendor id and JoyCon product id
@@ -87,37 +77,74 @@ async def _main(capture_file=None):
 
     logger.info(f'Found controller "{controller}".')
 
-    logger.info('Connecting with the Switch... Please open the "Change Grip/Order" menu.')
+    return controller
 
-    ctl_sock.setblocking(False)
-    itr_sock.setblocking(False)
 
-    ctl_sock.bind((socket.BDADDR_ANY, 17))
-    itr_sock.bind((socket.BDADDR_ANY, 19))
-
-    ctl_sock.listen(1)
-    itr_sock.listen(1)
-
-    emulated_hid = HidDevice()
-    # setting bluetooth adapter name and class to the device we wish to emulate
-    await emulated_hid.set_name(controller['product_string'])
-    await emulated_hid.set_class()
-
-    logger.info('Advertising the Bluetooth SDP record...')
-    emulated_hid.register_sdp_record(PROFILE_PATH)
-    emulated_hid.discoverable()
-
+async def _main(capture_file=None, reconnect_bt_addr=None):
     loop = asyncio.get_event_loop()
-    client_ctl, ctl_address = await loop.sock_accept(ctl_sock)
-    logger.info(f'Accepted connection at psm 17 from {ctl_address}')
-    client_itr, itr_address = await loop.sock_accept(itr_sock)
-    logger.info(f'Accepted connection at psm 19 from {itr_address}')
-    assert ctl_address[0] == itr_address[0]
 
-    # stop advertising
-    emulated_hid.discoverable(False)
+    if reconnect_bt_addr == None:
+        # Creating l2cap sockets, we have to do this before restarting bluetooth
+        ctl_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+        itr_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+
+        # HACK: To circumvent incompatibilities with the bluetooth "input" plugin, we need to restart Bluetooth here.
+        # The Switch does not connect to the sockets if we don't.
+        # For more info see: https://github.com/mart1nro/joycontrol/issues/8
+        logger.info('Restarting bluetooth service...')
+        await utils.run_system_command('systemctl restart bluetooth.service')
+        await asyncio.sleep(1)
+
+        controller = await get_hid_controller()
+
+        logger.info('Connecting with the Switch... Please open the "Change Grip/Order" menu.')
+
+        ctl_sock.setblocking(False)
+        itr_sock.setblocking(False)
+
+        ctl_sock.bind((socket.BDADDR_ANY, 17))
+        itr_sock.bind((socket.BDADDR_ANY, 19))
+
+        ctl_sock.listen(1)
+        itr_sock.listen(1)
+
+        emulated_hid = HidDevice()
+        # setting bluetooth adapter name and class to the device we wish to emulate
+        await emulated_hid.set_name(controller['product_string'])
+        await emulated_hid.set_class()
+
+        logger.info('Advertising the Bluetooth SDP record...')
+
+        emulated_hid.register_sdp_record(PROFILE_PATH)
+        #emulated_hid.powered(True)
+        emulated_hid.discoverable(True)
+        #emulated_hid.pairable(True)
+
+        client_ctl, ctl_address = await loop.sock_accept(ctl_sock)
+        logger.info(f'Accepted connection at psm 17 from {ctl_address}')
+        client_itr, itr_address = await loop.sock_accept(itr_sock)
+        logger.info(f'Accepted connection at psm 19 from {itr_address}')
+        assert ctl_address[0] == itr_address[0]
+
+        # stop advertising
+        emulated_hid.discoverable(False)
+    else:
+        controller = await get_hid_controller()
+
+        client_ctl = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+        client_itr = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+
+        client_ctl.connect((reconnect_bt_addr, 17))
+        logger.info(f'Reconnected at psm 17 to switch {reconnect_bt_addr}')
+        client_itr.connect((reconnect_bt_addr, 19))
+        logger.info(f'Reconnected at psm 19 to switch {reconnect_bt_addr}')
+
+        client_ctl.setblocking(False)
+        client_itr.setblocking(False)
 
     relay = Relay(capture_file)
+
+    logger.info('Relaying starting...')
 
     try:
         with AsyncHID(path=controller['path'], loop=loop) as hid_controller:
@@ -138,6 +165,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--log', help='log file path for capturing communication')
+    parser.add_argument('-r', '--reconnect_bt_addr', type=str, default=None,
+                        help='The Switch console Bluetooth address, for reconnecting as an already paired controller')
     args = parser.parse_args()
 
     # setup logging
@@ -146,6 +175,6 @@ if __name__ == '__main__':
     with utils.get_output(args.log, default=None) as capture_file:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(
-            _main(capture_file=capture_file)
+            _main(capture_file=capture_file, reconnect_bt_addr=args.reconnect_bt_addr)
         )
 
