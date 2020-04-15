@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 async def _send_empty_input_reports(transport):
     report = InputReport()
-    while True:
+    for i in range(10):
         await transport.write(report)
         await asyncio.sleep(1)
 
@@ -117,13 +117,15 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
     transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, client_ctl, 50, capture_file=capture_file)
     protocol.connection_made(transport)
 
-    # send some empty input reports until the Switch decides to reply
+    # HACK: send some empty input reports until the Switch decides to reply
     future = asyncio.ensure_future(_send_empty_input_reports(transport))
     await protocol.wait_for_output_report()
+    """
     future.cancel()
     try:
         await future
     except asyncio.CancelledError:
         pass
+    """
 
     return protocol.transport, protocol

@@ -49,7 +49,6 @@ class L2CAP_Transport(asyncio.Transport):
                 self._read_thread = None
                 break
 
-            #logger.debug(f'received "{list(data)}"')
             await self._protocol.report_received(data, self._itr_sock.getpeername())
 
     def start_reader(self):
@@ -99,6 +98,8 @@ class L2CAP_Transport(asyncio.Transport):
         await self._is_reading.wait()
         data = await self._loop.sock_recv(self._itr_sock, self._read_buffer_size)
 
+        # logger.debug(f'received "{list(data)}"')
+
         if not data:
             # disconnect happened
             logger.error('No data received.')
@@ -146,7 +147,8 @@ class L2CAP_Transport(asyncio.Transport):
             size = struct.pack('i', len(_bytes))
             self._capture_file.write(_time + size + _bytes)
 
-        #logger.debug(f'sending "{_bytes}"')
+        # logger.debug(f'sending "{_bytes}"')
+
         try:
             await self._loop.sock_sendall(self._itr_sock, _bytes)
         except OSError as err:
