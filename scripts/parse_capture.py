@@ -54,10 +54,6 @@ if __name__ == '__main__':
                     output_reports.append((time - start_time, report))
                 else:
                     raise ValueError(f'Unexpected data.')
-
-                # only interested in pairing
-                if isinstance(report, OutputReport) and report.get_sub_command() == SubCommand.SET_PLAYER_LIGHTS:
-                    break
         except EOFError:
             pass
 
