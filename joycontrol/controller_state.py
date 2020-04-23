@@ -9,6 +9,7 @@ class ControllerState:
     def __init__(self, protocol, controller: Controller, spi_flash: FlashMemory = None):
         self._protocol = protocol
         self._controller = controller
+        self._nfc_content = None
 
         self._spi_flash = spi_flash
 
@@ -196,6 +197,10 @@ async def button_push(controller_state, *buttons, sec=0.1):
 
     # send report
     await controller_state.send()
+
+
+async def set_nfc(controller_state, nfc_content):
+    controller_state._nfc_content = nfc_content
 
 
 class _StickCalibration:
