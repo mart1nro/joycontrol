@@ -18,3 +18,14 @@ class Controller(enum.Enum):
             return 'Pro Controller'
         else:
             raise NotImplementedError()
+
+    @staticmethod
+    def from_arg(arg):
+        if arg == 'JOYCON_R':
+            return Controller.JOYCON_R
+        elif arg == 'JOYCON_L':
+            return Controller.JOYCON_L
+        elif arg == 'PRO_CONTROLLER':
+            return Controller.PRO_CONTROLLER
+        else:
+            raise ValueError(f'Unknown controller "{arg}".')

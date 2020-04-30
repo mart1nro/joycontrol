@@ -48,6 +48,9 @@ class ControllerState:
     def get_flash_memory(self):
         return self._spi_flash
 
+    def set_nfc(self, nfc_content):
+        self._nfc_content = nfc_content
+
     async def send(self):
         """
         Invokes protocol.send_controller_state(). Returns after the controller state was send.
@@ -197,10 +200,6 @@ async def button_push(controller_state, *buttons, sec=0.1):
 
     # send report
     await controller_state.send()
-
-
-async def set_nfc(controller_state, nfc_content):
-    controller_state._nfc_content = nfc_content
 
 
 class _StickCalibration:

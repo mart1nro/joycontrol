@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import logging
 import os
-from contextlib import contextmanager
 
 from aioconsole import ainput
 
@@ -133,31 +132,79 @@ async def test_controller_buttons(controller_state: ControllerState):
     await button_push(controller_state, 'home')
 
 
-async def _main(controller, reconnect_bt_addr=None, capture_file=None, spi_flash=None, device_id=None):
-    factory = controller_protocol_factory(controller, spi_flash=spi_flash)
-    ctl_psm, itr_psm = 17, 19
-    transport, protocol = await create_hid_server(factory, reconnect_bt_addr=reconnect_bt_addr, ctl_psm=ctl_psm,
-                                                  itr_psm=itr_psm, capture_file=capture_file, device_id=device_id)
+async def set_amiibo(controller_state, file_path):
+    """
+    Sets nfc content of the controller state to contents of the given file.
+    :param controller_state: Emulated controller state
+    :param file_path: Path to amiibo dump file
+    """
+    loop = asyncio.get_event_loop()
 
-    controller_state = protocol.get_controller_state()
+    with open(file_path, 'rb') as amiibo_file:
+        content = await loop.run_in_executor(None, amiibo_file.read)
+        controller_state.set_nfc(content)
 
-    # Create command line interface and add some extra commands
-    cli = ControllerCLI(controller_state)
 
-    # Wrap the script so we can pass the controller state. The doc string will be printed when calling 'help'
-    async def _run_test_controller_buttons():
-        """
-        test_buttons - Navigates to the "Test Controller Buttons" menu and presses all buttons.
-        """
-        await test_controller_buttons(controller_state)
+async def _main(args):
+    # parse the spi flash
+    spi_flash = None
+    if args.spi_flash:
+        with open(args.spi_flash, 'rb') as spi_flash_file:
+            spi_flash = FlashMemory(spi_flash_file.read())
 
-    # add the script from above
-    cli.add_command('test_buttons', _run_test_controller_buttons)
+    # Get controller name to emulate from arguments
+    controller = Controller.from_arg(args.controller)
 
-    await cli.run()
+    with utils.get_output(path=args.log, default=None) as capture_file:
+        factory = controller_protocol_factory(controller, spi_flash=spi_flash)
+        ctl_psm, itr_psm = 17, 19
+        transport, protocol = await create_hid_server(factory, reconnect_bt_addr=args.reconnect_bt_addr,
+                                                      ctl_psm=ctl_psm,
+                                                      itr_psm=itr_psm, capture_file=capture_file,
+                                                      device_id=args.device_id)
 
-    logger.info('Stopping communication...')
-    await transport.close()
+        controller_state = protocol.get_controller_state()
+
+        # Create command line interface and add some extra commands
+        cli = ControllerCLI(controller_state)
+
+        # Wrap the script so we can pass the controller state. The doc string will be printed when calling 'help'
+        async def _run_test_controller_buttons():
+            """
+            test_buttons - Navigates to the "Test Controller Buttons" menu and presses all buttons.
+            """
+            await test_controller_buttons(controller_state)
+
+        # add the script from above
+        cli.add_command('test_buttons', _run_test_controller_buttons)
+
+        # Create amiibo command
+        async def amiibo(*args):
+            """
+            amiibo - Sets amiibo content
+
+            Usage:
+                amiibo <file_name>          Set controller state NFC content to file
+                amiibo remove               Remove NFC content from controller state
+            """
+            if controller_state.get_controller() == Controller.JOYCON_L:
+                raise ValueError('NFC content cannot be set for JOYCON_L')
+            elif not args:
+                raise ValueError('"amiibo" command requires amiibo dump file path as argument!')
+            elif args[0] == 'remove':
+                controller_state.set_nfc(None)
+                print('Removed nfc content.')
+            else:
+                await set_amiibo(controller_state, args[0])
+
+        # add the script from above
+        cli.add_command('amiibo', amiibo)
+
+        try:
+            await cli.run()
+        finally:
+            logger.info('Stopping communication...')
+            await transport.close()
 
 
 if __name__ == '__main__':
@@ -178,27 +225,7 @@ if __name__ == '__main__':
                         help='The Switch console Bluetooth address, for reconnecting as an already paired controller')
     args = parser.parse_args()
 
-    if args.controller == 'JOYCON_R':
-        controller = Controller.JOYCON_R
-    elif args.controller == 'JOYCON_L':
-        controller = Controller.JOYCON_L
-    elif args.controller == 'PRO_CONTROLLER':
-        controller = Controller.PRO_CONTROLLER
-    else:
-        raise ValueError(f'Unknown controller "{args.controller}".')
-
-    spi_flash = None
-    if args.spi_flash:
-        with open(args.spi_flash, 'rb') as spi_flash_file:
-            spi_flash = FlashMemory(spi_flash_file.read())
-
-    with utils.get_output(path=args.log, default=None) as capture_file:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
-            _main(controller,
-                  reconnect_bt_addr=args.reconnect_bt_addr,
-                  capture_file=capture_file,
-                  spi_flash=spi_flash,
-                  device_id=args.device_id
-                  )
-        )
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(
+        _main(args)
+    )

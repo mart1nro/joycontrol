@@ -1,5 +1,6 @@
 import inspect
 import logging
+import shlex
 
 from aioconsole import ainput
 
@@ -122,7 +123,7 @@ class ControllerCLI:
             buttons_to_push = []
 
             for command in user_input.split('&&'):
-                cmd, *args = command.split()
+                cmd, *args = shlex.split(command)
 
                 if cmd == 'exit':
                     return

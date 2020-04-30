@@ -260,7 +260,6 @@ class ControllerProtocol(BaseProtocol):
         else:
             logging.info(f'Unknown MCU sub command {sub_command}')
 
-
     async def _reply_to_sub_command(self, report):
         # classify sub command
         try:
