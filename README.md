@@ -4,9 +4,9 @@ Emulate Nintendo Switch Controllers over Bluetooth.
 Tested on Ubuntu 19.10 and with Raspberry Pi 4B Raspbian GNU/Linux 10 (buster)
 
 ## Installation
-- Install dbus-python package
+- Install the dbus-python and libhidapi-hidraw0 packages
 ```bash
-sudo apt install python3-dbus
+sudo apt install python3-dbus libhidapi-hidraw0
 ```
 - Clone the repository and install the joycontrol package to get missing dependencies (Note: Controller script needs super user rights, so python packages must be installed as root). In the joycontrol folder run:
 ```bash
