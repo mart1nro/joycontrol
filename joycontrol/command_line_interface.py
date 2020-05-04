@@ -1,5 +1,6 @@
 import inspect
 import logging
+import shlex
 
 from aioconsole import ainput
 
@@ -37,15 +38,16 @@ def _print_doc(string):
             print(line[prefix_i:] if line.strip() else line)
 
 
-class ControllerCLI:
-    def __init__(self, controller_state: ControllerState):
-        self.controller_state = controller_state
+class CLI:
+    def __init__(self):
         self.commands = {}
 
+    def add_command(self, name, command):
+        if name in self.commands:
+            raise ValueError(f'Command {name} already registered.')
+        self.commands[name] = command
+
     async def cmd_help(self):
-        print('Button commands:')
-        print(', '.join(self.controller_state.button_state.get_available_buttons()))
-        print()
         print('Commands:')
         for name, fun in inspect.getmembers(self):
             if name.startswith('cmd_') and fun.__doc__:
@@ -57,6 +59,47 @@ class ControllerCLI:
 
         print('Commands can be chained using "&&"')
         print('Type "exit" to close.')
+
+    async def run(self):
+        while True:
+            user_input = await ainput(prompt='cmd >> ')
+            if not user_input:
+                continue
+
+            for command in user_input.split('&&'):
+                cmd, *args = shlex.split(command)
+
+                if cmd == 'exit':
+                    return
+
+                if hasattr(self, f'cmd_{cmd}'):
+                    try:
+                        result = await getattr(self, f'cmd_{cmd}')(*args)
+                        if result:
+                            print(result)
+                    except Exception as e:
+                        print(e)
+                elif cmd in self.commands:
+                    try:
+                        result = await self.commands[cmd](*args)
+                        if result:
+                            print(result)
+                    except Exception as e:
+                        print(e)
+                else:
+                    print('command', cmd, 'not found, call help for help.')
+
+
+class ControllerCLI(CLI):
+    def __init__(self, controller_state: ControllerState):
+        super().__init__()
+        self.controller_state = controller_state
+
+    async def cmd_help(self):
+        print('Button commands:')
+        print(', '.join(self.controller_state.button_state.get_available_buttons()))
+        print()
+        await super().cmd_help()
 
     @staticmethod
     def _set_stick(stick, direction, value):
@@ -108,11 +151,6 @@ class ControllerCLI:
         else:
             raise ValueError('Value of side must be "l", "left" or "r", "right"')
 
-    def add_command(self, name, command):
-        if name in self.commands:
-            raise ValueError(f'Command {name} already registered.')
-        self.commands[name] = command
-
     async def run(self):
         while True:
             user_input = await ainput(prompt='cmd >> ')
@@ -122,7 +160,7 @@ class ControllerCLI:
             buttons_to_push = []
 
             for command in user_input.split('&&'):
-                cmd, *args = command.split()
+                cmd, *args = shlex.split(command)
 
                 if cmd == 'exit':
                     return

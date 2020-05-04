@@ -9,6 +9,7 @@ class ControllerState:
     def __init__(self, protocol, controller: Controller, spi_flash: FlashMemory = None):
         self._protocol = protocol
         self._controller = controller
+        self._nfc_content = None
 
         self._spi_flash = spi_flash
 
@@ -46,6 +47,12 @@ class ControllerState:
 
     def get_flash_memory(self):
         return self._spi_flash
+
+    def set_nfc(self, nfc_content):
+        self._nfc_content = nfc_content
+
+    def get_nfc(self):
+        return self._nfc_content
 
     async def send(self):
         """
