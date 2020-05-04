@@ -1,5 +1,8 @@
+import logging
 from enum import Enum
 from crc8 import crc8
+
+logger = logging.getLogger(__name__)
 
 
 class Action(Enum):
@@ -24,7 +27,12 @@ def copyarray(dest, offset, src):
     for i in range(len(src)):
         dest[offset + i] = src[i]
 
-class Mcu:
+
+class IrNfcMcu:
+    """
+    TODO: cleanup
+    """
+
     def __init__(self):
         self._fw_major = [0, 3]
         self._fw_minor = [0, 5]
@@ -79,14 +87,7 @@ class Mcu:
     def update_nfc_report(self):
         self._bytes = [0] * 313
         if self.get_action() == Action.REQUEST_STATUS:
-            self._bytes[0] = 1
-            self._bytes[1] = 0
-            self._bytes[2] = 0
-            self._bytes[3] = self._fw_major[0]
-            self._bytes[4] = self._fw_major[1]
-            self._bytes[5] = self._fw_minor[0]
-            self._bytes[6] = self._fw_minor[1]
-            self._bytes[7] = self._get_state_byte()
+            self.update_status()
         elif self.get_action() == Action.NON:
             self._bytes[0] = 0xff
         elif self.get_action() == Action.START_TAG_DISCOVERY:
@@ -104,13 +105,13 @@ class Mcu:
             self._bytes[2] = 5
             self._bytes[3] = 0
             self._bytes[4] = 0
-            if not self._nfc_content is None:
+            if self._nfc_content is not None:
                 data = [0x09, 0x31, 0x09, 0x00, 0x00, 0x00, 0x01, 0x01, 0x02, 0x00, 0x07]
                 copyarray(self._bytes, 5, data)
                 copyarray(self._bytes, 5 + len(data), self._nfc_content[0:3])
                 copyarray(self._bytes, 5 + len(data) + 3, self._nfc_content[4:8])
             else:
-                print('nfc content is none')
+                logger.info('nfc content is none')
                 self._bytes[5] = 9
                 self._bytes[6] = 0x31
                 self._bytes[7] = 0

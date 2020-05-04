@@ -112,9 +112,11 @@ class InputReport:
         for i in range(14, 50):
             self.data[i] = 0x00
 
-    def set_mcu(self, data):
+    def set_ir_nfc_data(self, data):
+        if 50 + len(data) > len(self.data):
+            raise ValueError('Too much data.')
+
         # write to data
-        data = bytes(data)
         for i in range(len(data)):
             self.data[50 + i] = data[i]
 
@@ -205,6 +207,15 @@ class InputReport:
         else:
             return bytes(self.data[:51])
 
+    def __str__(self):
+        _id = f'Input {self.get_input_report_id():x}'
+        _info = ''
+        if self.get_input_report_id() == 0x21:
+            _info = self.get_reply_to_subcommand_id()
+        _bytes = ' '.join(f'{byte:x}' for byte in bytes(self))
+
+        return f'{_id} {_info}\n{_bytes}'
+
 
 class SubCommand(Enum):
     REQUEST_DEVICE_INFO = 0x02
@@ -222,7 +233,7 @@ class SubCommand(Enum):
 class OutputReportID(Enum):
     SUB_COMMAND = 0x01
     RUMBLE_ONLY = 0x10
-    REQUEST_MCU = 0x11
+    REQUEST_IR_NFC_MCU = 0x11
 
 
 class OutputReport:
@@ -306,3 +317,12 @@ class OutputReport:
 
     def __bytes__(self):
         return bytes(self.data)
+
+    def __str__(self):
+        _id = f'Output {self.get_output_report_id()}'
+        _info = ''
+        if self.get_output_report_id() == OutputReportID.SUB_COMMAND:
+            _info = self.get_sub_command()
+        _bytes = ' '.join(f'{byte:x}' for byte in bytes(self))
+
+        return f'{_id} {_info}\n{_bytes}'

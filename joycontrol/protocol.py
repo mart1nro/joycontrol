@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from asyncio import BaseTransport, BaseProtocol
 from contextlib import suppress
 from typing import Optional, Union, Tuple, Text
@@ -10,7 +11,7 @@ from joycontrol.controller_state import ControllerState
 from joycontrol.memory import FlashMemory
 from joycontrol.report import OutputReport, SubCommand, InputReport, OutputReportID
 from joycontrol.transport import NotConnectedError
-from joycontrol.mcu import Mcu, McuState, Action
+from joycontrol.ir_nfc_mcu import IrNfcMcu, McuState, Action
 from crc8 import crc8
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class ControllerProtocol(BaseProtocol):
         self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
         self._controller_state_sender = None
 
-        self._mcu = Mcu()
+        self._mcu = IrNfcMcu()
 
         # None = Just answer to sub commands
         self._input_report_mode = None
@@ -55,7 +56,7 @@ class ControllerProtocol(BaseProtocol):
 
         Raises NotConnected exception if the transport is not connected or the connection was lost.
         """
-        # TODO: Call write directly if not in 0x30 input report mode
+        # TODO: Call write directly if in continuously sending input report mode
 
         if self.transport is None:
             raise NotConnectedError('Transport not registered.')
@@ -93,11 +94,6 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_timer(self._input_report_timer)
         self._input_report_timer = (self._input_report_timer + 1) % 0x100
 
-        if input_report.get_input_report_id() == 0x31:
-            self._mcu.set_nfc(self._controller_state._nfc_content)
-            self._mcu.update_nfc_report()
-            input_report.set_mcu(self._mcu)
-
         await self.transport.write(input_report)
 
         self._controller_state.sig_is_send.set()
@@ -131,28 +127,29 @@ class ControllerProtocol(BaseProtocol):
 
     async def input_report_mode_full(self):
         """
-        Continuously sends full input reports containing the controller state.
+        Continuously sends:
+            0x30 input reports containing the controller state OR
+            0x31 input reports containing the controller state and nfc data
         """
         if self.transport.is_reading():
             raise ValueError('Transport must be paused in full input report mode')
 
+        # send state at 66Hz
+        send_delay = 0.015
+        await asyncio.sleep(send_delay)
+        last_send_time = time.time()
+
         input_report = InputReport()
         input_report.set_vibrator_input()
         input_report.set_misc()
+        if self._input_report_mode is None:
+            raise ValueError('Input report mode is not set.')
+        input_report.set_input_report_id(self._input_report_mode)
 
         reader = asyncio.ensure_future(self.transport.read())
 
         try:
             while True:
-                input_report.set_input_report_id(self._input_report_mode)
-                # TODO: improve timing
-                if self.controller == Controller.PRO_CONTROLLER:
-                    # send state at 120Hz
-                    await asyncio.sleep(1 / 120)
-                else:
-                    # send state at 60Hz
-                    await asyncio.sleep(1 / 60)
-
                 reply_send = False
                 if reader.done():
                     data = await reader
@@ -168,8 +165,10 @@ class ControllerProtocol(BaseProtocol):
                             pass
                         elif output_report_id == OutputReportID.SUB_COMMAND:
                             reply_send = await self._reply_to_sub_command(report)
-                        elif output_report_id == OutputReportID.REQUEST_MCU:
-                            reply_send = await self._reply_to_mcu(report)
+                        elif output_report_id == OutputReportID.REQUEST_IR_NFC_MCU:
+                            # TODO: This does not reply anything
+                            # reply_send = await self._reply_to_ir_nfc_mcu(report)
+                            await self._reply_to_ir_nfc_mcu(report)
                         else:
                             logger.warning(f'Report unknown output report "{output_report_id}" - IGNORE')
                     except ValueError as v_err:
@@ -185,7 +184,25 @@ class ControllerProtocol(BaseProtocol):
                     # TODO: set some sensor data
                     input_report.set_6axis_data()
 
+                    # set nfc data
+                    if input_report.get_input_report_id() == 0x31:
+                        self._mcu.set_nfc(self._controller_state.get_nfc())
+                        self._mcu.update_nfc_report()
+                        input_report.set_ir_nfc_data(bytes(self._mcu))
+
                     await self.write(input_report)
+
+                # calculate delay
+                current_time = time.time()
+                time_delta = time.time() - last_send_time
+                sleep_time = send_delay - time_delta
+                last_send_time = current_time
+
+                if sleep_time < 0:
+                    # logger.warning(f'Code is running {abs(sleep_time)} s too slow!')
+                    sleep_time = 0
+
+                await asyncio.sleep(sleep_time)
 
         except NotConnectedError as err:
             # Stop 0x30 input report mode if disconnected.
@@ -220,13 +237,17 @@ class ControllerProtocol(BaseProtocol):
         else:
             logger.warning(f'Output report {output_report_id} not implemented - ignoring')
 
-    async def _reply_to_mcu(self, report):
+    async def _reply_to_ir_nfc_mcu(self, report):
+        """
+        TODO: Cleanup
+              We aren't replying to anything here, do we need to?
+        """
         sub_command = report.data[11]
         sub_command_data = report.data[12:]
 
         # logging.info(f'received output report - Request MCU sub command {sub_command}')
 
-        if self._mcu.get_action() == Action.READ_TAG or self._mcu.get_action() == Action.READ_TAG_2 or self._mcu.get_action() == Action.READ_FINISHED:
+        if self._mcu.get_action() in (Action.READ_TAG, Action.READ_TAG_2, Action.READ_FINISHED):
             return
 
         # Request mcu state
@@ -369,16 +390,35 @@ class ControllerProtocol(BaseProtocol):
         await self.write(input_report)
 
     async def _command_set_input_report_mode(self, sub_command_data):
-        if sub_command_data[0] == 0x30:
-            pass
-        elif sub_command_data[0] == 0x31:
-            pass
+        if self._input_report_mode == sub_command_data[0]:
+            logger.warning(f'Already in input report mode {sub_command_data[0]} - ignoring request')
+
+        # Start input report reader
+        if sub_command_data[0] in (0x30, 0x31):
+            new_reader = asyncio.ensure_future(self.input_report_mode_full())
         else:
             logger.error(f'input report mode {sub_command_data[0]} not implemented - ignoring request')
             return
 
-        logger.info(f'Setting input report mode to {hex(sub_command_data[0])}...')
+        # Replace the currently running reader with the input report mode sender,
+        # which will also handle incoming requests in the future
 
+        self.transport.pause_reading()
+
+        # We need to replace the reader in the future because this function was probably called by it
+        async def set_reader():
+            await self.transport.set_reader(new_reader)
+
+            logger.info(f'Setting input report mode to {hex(sub_command_data[0])}...')
+            self._input_report_mode = sub_command_data[0]
+
+            self.transport.resume_reading()
+
+        asyncio.ensure_future(set_reader()).add_done_callback(
+            utils.create_error_check_callback()
+        )
+
+        # Send acknowledgement
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
@@ -387,23 +427,6 @@ class ControllerProtocol(BaseProtocol):
         input_report.reply_to_subcommand_id(0x03)
 
         await self.write(input_report)
-
-        # start sending input reports
-        if self._input_report_mode is None:
-
-            self.transport.pause_reading()
-            new_reader = asyncio.ensure_future(self.input_report_mode_full())
-
-            # We need to swap the reader in the future because this function was probably called by it
-            async def set_reader():
-                await self.transport.set_reader(new_reader)
-                self.transport.resume_reading()
-
-            asyncio.ensure_future(set_reader()).add_done_callback(
-                utils.create_error_check_callback()
-            )
-
-        self._input_report_mode = sub_command_data[0]
 
     async def _command_trigger_buttons_elapsed_time(self, sub_command_data):
         input_report = InputReport()
