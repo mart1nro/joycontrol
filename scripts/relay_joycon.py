@@ -20,6 +20,7 @@ PRODUCT_ID_JL = 8198
 PRODUCT_ID_JR = 8199
 PRODUCT_ID_PC = 8201
 
+
 class Relay:
     def __init__(self, capture_file=None):
         self._capture_file = capture_file

@@ -51,6 +51,9 @@ class ControllerState:
     def set_nfc(self, nfc_content):
         self._nfc_content = nfc_content
 
+    def get_nfc(self):
+        return self._nfc_content
+
     async def send(self):
         """
         Invokes protocol.send_controller_state(). Returns after the controller state was send.
