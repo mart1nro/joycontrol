@@ -147,10 +147,12 @@ async def set_amiibo(controller_state, file_path):
 
 async def _main(args):
     # parse the spi flash
-    spi_flash = None
     if args.spi_flash:
         with open(args.spi_flash, 'rb') as spi_flash_file:
             spi_flash = FlashMemory(spi_flash_file.read())
+    else:
+        # Create memory containing default controller stick calibration
+        spi_flash = FlashMemory()
 
     # Get controller name to emulate from arguments
     controller = Controller.from_arg(args.controller)

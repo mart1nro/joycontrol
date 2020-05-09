@@ -27,6 +27,8 @@ class ControllerState:
                 calibration = LeftStickCalibration.from_bytes(calibration_data)
 
             self.l_stick_state = StickState(calibration=calibration)
+            if calibration is not None:
+                self.l_stick_state.set_center()
 
         # create right stick state
         if controller in (Controller.PRO_CONTROLLER, Controller.JOYCON_R):
@@ -39,6 +41,8 @@ class ControllerState:
                 calibration = RightStickCalibration.from_bytes(calibration_data)
 
             self.r_stick_state = StickState(calibration=calibration)
+            if calibration is not None:
+                self.r_stick_state.set_center()
 
         self.sig_is_send = asyncio.Event()
 
