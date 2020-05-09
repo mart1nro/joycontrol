@@ -2,7 +2,11 @@
 class FlashMemory:
     def __init__(self, spi_flash_memory_data=None, size=0x80000):
         if spi_flash_memory_data is None:
-            self.data = size * [0x00]
+            self.data = [0xFF] * size  # Blank data is all 0xFF
+            # L-stick factory calibration
+            self.data[0x603D:0x6046] = [0x00, 0x07, 0x70, 0x00, 0x08, 0x80, 0x00, 0x07, 0x70]
+            # R-stick factory calibration
+            self.data[0x6046:0x604F] = [0x00, 0x08, 0x80, 0x00, 0x07, 0x70, 0x00, 0x07, 0x70]
         else:
             if len(spi_flash_memory_data) != size:
                 raise ValueError(f'Given data size {len(spi_flash_memory_data)} does not match size {size}.')
