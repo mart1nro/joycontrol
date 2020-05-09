@@ -122,7 +122,7 @@ class DataReader:
                 output_file.write(bytes(spi_data))
 
 
-async def dumb_spi_flash(hid_device, output_file=None):
+async def dump_spi_flash(hid_device, output_file=None):
     SPI_FLASH_SIZE = 0x80000
 
     spi_flash_reader = DataReader()
@@ -163,10 +163,10 @@ async def _main(args, loop):
     if args.output:
         with open(args.output, 'wb') as output:
             with AsyncHID(path=controller['path'], loop=loop) as hid_controller:
-                await dumb_spi_flash(hid_controller, output_file=output)
+                await dump_spi_flash(hid_controller, output_file=output)
     else:
         with AsyncHID(path=controller['path'], loop=loop) as hid_controller:
-            await dumb_spi_flash(hid_controller)
+            await dump_spi_flash(hid_controller)
 
 
 if __name__ == '__main__':
