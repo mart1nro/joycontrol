@@ -131,7 +131,7 @@ class IrNfcMcu:
             else:
                 data = bytes.fromhex('02000927')
                 copyarray(self._bytes, 3, data)
-                copyarray(self._bytes, 3 + len(data), self._nfc_content[245:])
+                copyarray(self._bytes, 3 + len(data), self._nfc_content[245:540])
                 self.set_action(Action.READ_FINISHED)
         elif self.get_action() == Action.READ_FINISHED:
             self._bytes[0] = 0x2a
