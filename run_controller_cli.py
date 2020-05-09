@@ -40,7 +40,7 @@ Options:
 
     --spi_flash <spi_flash_memory_file>     Memory dump of a real Switch controller. Required for joystick emulation.
                                             Allows displaying of JoyCon colors.
-                                            Memory dumbs can be created using the dump_spi_flash.py script.
+                                            Memory dumps can be created using the dump_spi_flash.py script.
                                             
     -r --reconnect_bt_addr <console_bluetooth_address>  Previously connected Switch console Bluetooth address in string 
                                                         notation (e.g. "FF:FF:FF:FF:FF:FF") for reconnection.
