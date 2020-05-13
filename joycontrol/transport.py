@@ -4,7 +4,7 @@ import struct
 import time
 from typing import Any
 
-from joycontrol import utils
+from . import utils
 
 logger = logging.getLogger(__name__)
 

@@ -5,13 +5,13 @@ from asyncio import BaseTransport, BaseProtocol
 from contextlib import suppress
 from typing import Optional, Union, Tuple, Text
 
-from joycontrol import utils
-from joycontrol.controller import Controller
-from joycontrol.controller_state import ControllerState
-from joycontrol.memory import FlashMemory
-from joycontrol.report import OutputReport, SubCommand, InputReport, OutputReportID
-from joycontrol.transport import NotConnectedError
-from joycontrol.ir_nfc_mcu import IrNfcMcu, McuState, Action
+from . import utils
+from .controller import Controller
+from .controller_state import ControllerState
+from .memory import FlashMemory
+from .report import OutputReport, SubCommand, InputReport, OutputReportID
+from .transport import NotConnectedError
+from .ir_nfc_mcu import IrNfcMcu, McuState, Action
 from crc8 import crc8
 
 logger = logging.getLogger(__name__)

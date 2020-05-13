@@ -1,8 +1,8 @@
 import asyncio
 
-from joycontrol import utils
-from joycontrol.controller import Controller
-from joycontrol.memory import FlashMemory
+from . import utils
+from .controller import Controller
+from .memory import FlashMemory
 
 
 class ControllerState:

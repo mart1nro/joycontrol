@@ -1,6 +1,6 @@
 from enum import Enum
 
-from joycontrol.controller import Controller
+from .controller import Controller
 
 
 class InputReport:

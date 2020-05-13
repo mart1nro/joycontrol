@@ -5,10 +5,10 @@ import socket
 import dbus
 import pkg_resources
 
-from joycontrol import utils
-from joycontrol.device import HidDevice
-from joycontrol.report import InputReport
-from joycontrol.transport import L2CAP_Transport
+from . import utils
+from .device import HidDevice
+from .report import InputReport
+from .transport import L2CAP_Transport
 
 PROFILE_PATH = pkg_resources.resource_filename('joycontrol', 'profile/sdp_record_hid.xml')
 logger = logging.getLogger(__name__)

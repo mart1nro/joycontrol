@@ -4,8 +4,8 @@ import shlex
 
 from aioconsole import ainput
 
-from joycontrol.controller_state import button_push, ControllerState
-from joycontrol.transport import NotConnectedError
+from .controller_state import button_push, ControllerState
+from .transport import NotConnectedError
 
 logger = logging.getLogger(__name__)
 

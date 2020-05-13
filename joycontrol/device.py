@@ -2,7 +2,7 @@ import logging
 import uuid
 import dbus
 
-from joycontrol import utils
+from . import utils
 
 logger = logging.getLogger(__name__)
 
