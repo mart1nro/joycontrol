@@ -115,7 +115,7 @@ class IrNfcMcu:
                 self._bytes[5] = 9
                 self._bytes[6] = 0x31
                 self._bytes[7] = 0
-        elif self.get_action() == Action.READ_TAG or self.get_action() == Action.READ_TAG_2:
+        elif self.get_action() in (Action.READ_TAG, Action.READ_TAG_2):
             self._bytes[0] = 0x3a
             self._bytes[1] = 0
             self._bytes[2] = 7
@@ -131,7 +131,7 @@ class IrNfcMcu:
             else:
                 data = bytes.fromhex('02000927')
                 copyarray(self._bytes, 3, data)
-                copyarray(self._bytes, 3 + len(data), self._nfc_content[245:])
+                copyarray(self._bytes, 3 + len(data), self._nfc_content[245:540])
                 self.set_action(Action.READ_FINISHED)
         elif self.get_action() == Action.READ_FINISHED:
             self._bytes[0] = 0x2a

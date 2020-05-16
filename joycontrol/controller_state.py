@@ -177,7 +177,7 @@ class ButtonState:
 
     def __iter__(self):
         """
-        @returns iterator over the button bytes
+        :returns iterator over the button bytes
         """
         yield self._byte_1
         yield self._byte_2
