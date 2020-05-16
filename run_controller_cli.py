@@ -183,7 +183,7 @@ async def _main(args):
         # Create amiibo command
         async def amiibo(*args):
             """
-            amiibo - Sets amiibo content
+            amiibo - Sets nfc content
 
             Usage:
                 amiibo <file_name>          Set controller state NFC content to file
@@ -192,7 +192,7 @@ async def _main(args):
             if controller_state.get_controller() == Controller.JOYCON_L:
                 raise ValueError('NFC content cannot be set for JOYCON_L')
             elif not args:
-                raise ValueError('"amiibo" command requires amiibo dump file path as argument!')
+                raise ValueError('"amiibo" command requires file path to an nfc dump as argument!')
             elif args[0] == 'remove':
                 controller_state.set_nfc(None)
                 print('Removed nfc content.')
