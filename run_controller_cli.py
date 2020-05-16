@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 While running the cli, call "help" for an explanation of available commands.
 
 Usage:
-    run_controller_cli.py <controller> [--device_id | -d  <bluetooth_adapter_id>] 
+    run_controller_cli.py <controller> [--device_id | -d  <bluetooth_adapter_id>]
                                        [--spi_flash <spi_flash_memory_file>]
                                        [--reconnect_bt_addr | -r <console_bluetooth_address>]
                                        [--log | -l <communication_log_file>]
@@ -33,7 +33,7 @@ Arguments:
 
 Options:
     -d --device_id <bluetooth_adapter_id>   ID of the bluetooth adapter. Integer matching the digit in the hci* notation
-                                            (e.g. hci0, hci1, ...) or Bluetooth mac address of the adapter in string 
+                                            (e.g. hci0, hci1, ...) or Bluetooth mac address of the adapter in string
                                             notation (e.g. "FF:FF:FF:FF:FF:FF").
                                             Note: Selection of adapters may not work if the bluez "input" plugin is
                                             enabled.
@@ -41,11 +41,11 @@ Options:
     --spi_flash <spi_flash_memory_file>     Memory dump of a real Switch controller. Required for joystick emulation.
                                             Allows displaying of JoyCon colors.
                                             Memory dumps can be created using the dump_spi_flash.py script.
-                                            
-    -r --reconnect_bt_addr <console_bluetooth_address>  Previously connected Switch console Bluetooth address in string 
+
+    -r --reconnect_bt_addr <console_bluetooth_address>  Previously connected Switch console Bluetooth address in string
                                                         notation (e.g. "FF:FF:FF:FF:FF:FF") for reconnection.
                                                         Does not require the "Change Grip/Order" menu to be opened,
-    
+
     -l --log <communication_log_file>       Write hid communication (input reports and output reports) to a file.
 """
 
@@ -145,6 +145,25 @@ async def set_amiibo(controller_state, file_path):
         controller_state.set_nfc(content)
 
 
+async def mash_button(controller_state, button, interval):
+    # waits until controller is fully connected
+    await controller_state.connect()
+
+    if button not in controller_state.button_state.get_available_buttons():
+        raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
+
+    user_input = asyncio.ensure_future(
+        ainput(prompt=f'Pressing the {button} button every {interval} seconds... Press <enter> to stop.')
+    )
+    # push a button repeatedly until user input
+    while not user_input.done():
+        await button_push(controller_state, button)
+        await asyncio.sleep(float(interval))
+
+    # await future to trigger exceptions in case something went wrong
+    await user_input
+
+
 async def _main(args):
     # parse the spi flash
     if args.spi_flash:
@@ -179,6 +198,23 @@ async def _main(args):
 
         # add the script from above
         cli.add_command('test_buttons', _run_test_controller_buttons)
+
+        # Mash a button command
+        async def call_mash_button(*args):
+            """
+            mash - Mash a specified button at a set interval
+
+            Usage:
+                mash <button> <interval>
+            """
+            if not len(args) == 2:
+                raise ValueError('"mash_button" command requires a button and interval as arguments!')
+
+            button, interval = args
+            await mash_button(controller_state, button, interval)
+
+        # add the script from above
+        cli.add_command('mash', call_mash_button)
 
         # Create amiibo command
         async def amiibo(*args):
