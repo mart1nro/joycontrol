@@ -145,6 +145,25 @@ async def set_amiibo(controller_state, file_path):
         controller_state.set_nfc(content)
 
 
+async def mash_button(controller_state, button, interval):
+    # waits until controller is fully connected
+    await controller_state.connect()
+
+    if button not in controller_state.button_state.get_available_buttons():
+        raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
+
+    user_input = asyncio.ensure_future(
+        ainput(prompt=f'Pressing the {button} button every {interval} seconds... Press <enter> to stop.')
+    )
+    # push a button repeatedly until user input
+    while not user_input.done():
+        await button_push(controller_state, button)
+        await asyncio.sleep(float(interval))
+
+    # await future to trigger exceptions in case something went wrong
+    await user_input
+
+
 async def _main(args):
     # parse the spi flash
     if args.spi_flash:
@@ -181,37 +200,21 @@ async def _main(args):
         cli.add_command('test_buttons', _run_test_controller_buttons)
 
         # Mash a button command
-        async def mash_button(*args):
+        async def call_mash_button(*args):
             """
-            mash_button - Mash a specified button at a set interval
+            mash - Mash a specified button at a set interval
 
             Usage:
-                mash_button <button> <interval>
+                mash <button> <interval>
             """
-
             if not len(args) == 2:
                 raise ValueError('"mash_button" command requires a button and interval as arguments!')
 
-            # waits until controller is fully connected
-            await controller_state.connect()
-
-            user_input = asyncio.ensure_future(
-                ainput(prompt='Pressing the '+args[0]+' button every '+args[1]+' seconds forever... Press <enter> to stop.')
-            )
-
-            # push a button repeatedly until user input
-            while not user_input.done():
-                await button_push(controller_state, args[0])
-                await asyncio.sleep(float(args[1]))
-
-                if user_input.done():
-                    break
-
-            # await future to trigger exceptions in case something went wrong
-            await user_input
+            button, interval = args
+            await mash_button(controller_state, button, interval)
 
         # add the script from above
-        cli.add_command('mash_button', mash_button)
+        cli.add_command('mash', call_mash_button)
 
         # Create amiibo command
         async def amiibo(*args):
