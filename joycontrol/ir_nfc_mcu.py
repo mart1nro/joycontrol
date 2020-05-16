@@ -115,7 +115,7 @@ class IrNfcMcu:
                 self._bytes[5] = 9
                 self._bytes[6] = 0x31
                 self._bytes[7] = 0
-        elif self.get_action() == Action.READ_TAG or self.get_action() == Action.READ_TAG_2:
+        elif self.get_action() in (Action.READ_TAG, Action.READ_TAG_2):
             self._bytes[0] = 0x3a
             self._bytes[1] = 0
             self._bytes[2] = 7
