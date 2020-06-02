@@ -26,6 +26,7 @@ Usage:
                                        [--spi_flash <spi_flash_memory_file>]
                                        [--reconnect_bt_addr | -r <console_bluetooth_address>]
                                        [--log | -l <communication_log_file>]
+                                       [--amiibo <amiibo_bin_file>]
     run_controller_cli.py -h | --help
 
 Arguments:
@@ -47,6 +48,8 @@ Options:
                                                         Does not require the "Change Grip/Order" menu to be opened,
 
     -l --log <communication_log_file>       Write hid communication (input reports and output reports) to a file.
+
+    --amiibo <amiibo_bin_file>              Sets an amiibo dump file to the controller upon initial connection.
 """
 
 
@@ -238,6 +241,9 @@ async def _main(args):
         # add the script from above
         cli.add_command('amiibo', amiibo)
 
+        if args.amiibo is not None:
+            await amiibo(args.amiibo)
+
         try:
             await cli.run()
         finally:
@@ -261,6 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--spi_flash')
     parser.add_argument('-r', '--reconnect_bt_addr', type=str, default=None,
                         help='The Switch console Bluetooth address, for reconnecting as an already paired controller')
+    parser.add_argument('--amiibo', type=str, default=None)
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
