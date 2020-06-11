@@ -26,6 +26,7 @@ Usage:
                                        [--spi_flash <spi_flash_memory_file>]
                                        [--reconnect_bt_addr | -r <console_bluetooth_address>]
                                        [--log | -l <communication_log_file>]
+                                       [--nfc <nfc_data_file>]
     run_controller_cli.py -h | --help
 
 Arguments:
@@ -47,6 +48,9 @@ Options:
                                                         Does not require the "Change Grip/Order" menu to be opened,
 
     -l --log <communication_log_file>       Write hid communication (input reports and output reports) to a file.
+
+    --nfc <nfc_data_file>                   Sets the nfc data of the controller to a given nfc dump upon initial
+                                            connection.
 """
 
 
@@ -132,16 +136,16 @@ async def test_controller_buttons(controller_state: ControllerState):
     await button_push(controller_state, 'home')
 
 
-async def set_amiibo(controller_state, file_path):
+async def set_nfc(controller_state, file_path):
     """
     Sets nfc content of the controller state to contents of the given file.
     :param controller_state: Emulated controller state
-    :param file_path: Path to amiibo dump file
+    :param file_path: Path to nfc dump file
     """
     loop = asyncio.get_event_loop()
 
-    with open(file_path, 'rb') as amiibo_file:
-        content = await loop.run_in_executor(None, amiibo_file.read)
+    with open(file_path, 'rb') as nfc_file:
+        content = await loop.run_in_executor(None, nfc_file.read)
         controller_state.set_nfc(content)
 
 
@@ -216,27 +220,32 @@ async def _main(args):
         # add the script from above
         cli.add_command('mash', call_mash_button)
 
-        # Create amiibo command
-        async def amiibo(*args):
+        # Create nfc command
+        async def nfc(*args):
             """
-            amiibo - Sets nfc content
+            nfc - Sets nfc content
 
             Usage:
-                amiibo <file_name>          Set controller state NFC content to file
-                amiibo remove               Remove NFC content from controller state
+                nfc <file_name>          Set controller state NFC content to file
+                nfc remove               Remove NFC content from controller state
             """
             if controller_state.get_controller() == Controller.JOYCON_L:
                 raise ValueError('NFC content cannot be set for JOYCON_L')
             elif not args:
-                raise ValueError('"amiibo" command requires file path to an nfc dump as argument!')
+                raise ValueError('"nfc" command requires file path to an nfc dump as argument!')
             elif args[0] == 'remove':
                 controller_state.set_nfc(None)
                 print('Removed nfc content.')
             else:
-                await set_amiibo(controller_state, args[0])
+                await set_nfc(controller_state, args[0])
 
         # add the script from above
-        cli.add_command('amiibo', amiibo)
+        cli.add_command('nfc', nfc)
+        cli.add_command('amiibo', ControllerCLI.deprecated('Command is deprecated - use "nfc" instead!'))
+
+
+        if args.nfc is not None:
+            await nfc(args.nfc)
 
         try:
             await cli.run()
@@ -261,6 +270,7 @@ if __name__ == '__main__':
     parser.add_argument('--spi_flash')
     parser.add_argument('-r', '--reconnect_bt_addr', type=str, default=None,
                         help='The Switch console Bluetooth address, for reconnecting as an already paired controller')
+    parser.add_argument('--nfc', type=str, default=None)
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
