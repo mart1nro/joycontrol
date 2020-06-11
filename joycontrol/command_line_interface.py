@@ -89,6 +89,13 @@ class CLI:
                 else:
                     print('command', cmd, 'not found, call help for help.')
 
+    @staticmethod
+    def deprecated(message):
+        async def dep_printer(*args, **kwargs):
+            print(message)
+
+        return dep_printer
+
 
 class ControllerCLI(CLI):
     def __init__(self, controller_state: ControllerState):
