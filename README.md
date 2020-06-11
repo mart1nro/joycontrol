@@ -4,10 +4,16 @@ Emulate Nintendo Switch Controllers over Bluetooth.
 Tested on Ubuntu 19.10 and with Raspberry Pi 4B Raspbian GNU/Linux 10 (buster)
 
 ## Installation
-- Install the dbus-python and libhidapi-hidraw0 packages
+- Install dependencies
+
+Ubuntu: Install the `dbus-python` and `libhidapi-hidraw0` packages
 ```bash
 sudo apt install python3-dbus libhidapi-hidraw0
 ```
+
+Arch Linux Derivatives: Install the `hidapi` and `bluez-utils-compat`(AUR) packages
+
+
 - Clone the repository and install the joycontrol package to get missing dependencies (Note: Controller script needs super user rights, so python packages must be installed as root). In the joycontrol folder run:
 ```bash
 sudo pip3 install .
@@ -36,7 +42,7 @@ Call "help" to see a list of available commands.
 
 
 ## Issues
-- When using a Raspberry Pi 4B the connection drops after some time. Might be a hardware issue, since it works fine on my laptop. Using a different bluetooth adapter may help, but haven't tested it yet.
+- Some bluetooth adapters seem to cause disconnects for reasons unknown, try to use an usb adapter instead 
 - Incompatibility with Bluetooth "input" plugin requires a bluetooth restart, see [#8](https://github.com/mart1nro/joycontrol/issues/8)
 - It seems like the Switch is slower processing incoming messages while in the "Change Grip/Order" menu.
   This causes flooding of packets and makes pairing somewhat inconsistent.
