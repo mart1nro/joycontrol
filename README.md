@@ -3,6 +3,12 @@ Emulate Nintendo Switch Controllers over Bluetooth.
 
 Tested on Ubuntu 19.10 and with Raspberry Pi 4B Raspbian GNU/Linux 10 (buster)
 
+## Features
+Emulation of JOYCON_R, JOYCON_L and PRO_CONTROLLER. Able to send:
+- button commands
+- stick state
+- nfc data
+
 ## Installation
 - Install dependencies
 
