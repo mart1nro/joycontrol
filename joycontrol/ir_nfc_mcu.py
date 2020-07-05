@@ -143,6 +143,7 @@ class IrNfcMcu:
             copyarray(self._bytes, 5, data)
             copyarray(self._bytes, 5 + len(data), self._nfc_content[0:3])
             copyarray(self._bytes, 5 + len(data) + 3, self._nfc_content[4:8])
+            self.set_action(Action.NON)
 
         crc = crc8()
         crc.update(bytes(self._bytes[:-1]))
