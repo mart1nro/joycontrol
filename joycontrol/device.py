@@ -59,7 +59,7 @@ class HidDevice:
         :param cls: default 0x002508 (Gamepad/joystick device class)
         """
         logger.info(f'setting device class to {cls}...')
-        await utils.run_system_command(f'hciconfig {self._adapter_name} class {cls}')
+        await utils.run_system_command(['hciconfig', self._adapter_name, 'class', cls])
 
     async def set_name(self, name: str):
         """

@@ -63,7 +63,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
             # The Switch does not connect to the sockets if we don't.
             # For more info see: https://github.com/mart1nro/joycontrol/issues/8
             logger.info('Restarting bluetooth service...')
-            await utils.run_system_command('systemctl restart bluetooth.service')
+            await utils.run_system_command(['systemctl', 'restart', 'bluetooth.service'])
             await asyncio.sleep(1)
 
             hid = HidDevice(device_id=device_id)

@@ -65,8 +65,8 @@ def create_error_check_callback(ignore=None):
 
 
 async def run_system_command(cmd):
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE)
 
