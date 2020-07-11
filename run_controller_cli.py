@@ -150,11 +150,7 @@ async def set_nfc(controller_state, file_path):
 
 
 async def mash_button(controller_state, button, interval):
-    # waits until controller is fully connected
-    await controller_state.connect()
-
-    if button not in controller_state.button_state.get_available_buttons():
-        raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
+    await ensure_valid_button(controller_state, button)
 
     user_input = asyncio.ensure_future(
         ainput(prompt=f'Pressing the {button} button every {interval} seconds... Press <enter> to stop.')
@@ -169,23 +165,23 @@ async def mash_button(controller_state, button, interval):
 
 
 async def hold_button(controller_state, button):
-    # waits until controller is fully connected
-    await controller_state.connect()
-
-    if button not in controller_state.button_state.get_available_buttons():
-        raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
+    await ensure_valid_button(controller_state, button)
 
     await button_down(controller_state, button)
 
 
 async def release_button(controller_state, button):
+    await ensure_valid_button(controller_state, button)
+
+    await button_up(controller_state, button)
+
+
+async def ensure_valid_button(controller_state, button):
     # waits until controller is fully connected
     await controller_state.connect()
 
     if button not in controller_state.button_state.get_available_buttons():
         raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
-
-    await button_up(controller_state, button)
 
 
 async def _main(args):
