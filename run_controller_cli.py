@@ -166,13 +166,11 @@ async def mash_button(controller_state, button, interval):
 
 async def hold_button(controller_state, button):
     await ensure_valid_button(controller_state, button)
-
     await button_down(controller_state, button)
 
 
 async def release_button(controller_state, button):
     await ensure_valid_button(controller_state, button)
-
     await button_up(controller_state, button)
 
 
