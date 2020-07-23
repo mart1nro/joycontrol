@@ -9,6 +9,7 @@ class ControllerState:
     def __init__(self, protocol, controller: Controller, spi_flash: FlashMemory = None):
         self._protocol = protocol
         self._controller = controller
+        self._nfc_content = None
 
         self._spi_flash = spi_flash
 
@@ -26,6 +27,8 @@ class ControllerState:
                 calibration = LeftStickCalibration.from_bytes(calibration_data)
 
             self.l_stick_state = StickState(calibration=calibration)
+            if calibration is not None:
+                self.l_stick_state.set_center()
 
         # create right stick state
         if controller in (Controller.PRO_CONTROLLER, Controller.JOYCON_R):
@@ -38,15 +41,29 @@ class ControllerState:
                 calibration = RightStickCalibration.from_bytes(calibration_data)
 
             self.r_stick_state = StickState(calibration=calibration)
+            if calibration is not None:
+                self.r_stick_state.set_center()
 
         self.sig_is_send = asyncio.Event()
+
+    def get_controller(self):
+        return self._controller
 
     def get_flash_memory(self):
         return self._spi_flash
 
+    def set_nfc(self, nfc_content):
+        self._nfc_content = nfc_content
+
+    def get_nfc(self):
+        return self._nfc_content
+
     async def send(self):
-        self.sig_is_send.clear()
-        await self.sig_is_send.wait()
+        """
+        Invokes protocol.send_controller_state(). Returns after the controller state was send.
+        Raises NotConnected exception if the connection was lost.
+        """
+        await self._protocol.send_controller_state()
 
     async def connect(self):
         """
@@ -160,7 +177,7 @@ class ButtonState:
 
     def __iter__(self):
         """
-        @returns iterator over the button bytes
+        :returns iterator over the button bytes
         """
         yield self._byte_1
         yield self._byte_2

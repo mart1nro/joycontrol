@@ -11,8 +11,7 @@ class InputReport:
     """
     def __init__(self, data=None):
         if not data:
-            # TODO: not enough space for NFC/IR data input report
-            self.data = [0x00] * 51
+            self.data = [0x00] * 364
             # all input reports are prepended with 0xA1
             self.data[0] = 0xA1
         else:
@@ -114,6 +113,14 @@ class InputReport:
         for i in range(14, 50):
             self.data[i] = 0x00
 
+    def set_ir_nfc_data(self, data):
+        if 50 + len(data) > len(self.data):
+            raise ValueError('Too much data.')
+
+        # write to data
+        for i in range(len(data)):
+            self.data[50 + i] = data[i]
+
     def reply_to_subcommand_id(self, _id):
         if isinstance(_id, SubCommand):
             self.data[15] = _id.value
@@ -196,8 +203,19 @@ class InputReport:
             return bytes(self.data[:51])
         elif _id == 0x30:
             return bytes(self.data[:14])
+        elif _id == 0x31:
+            return bytes(self.data[:363])
         else:
-            return bytes(self.data)
+            return bytes(self.data[:51])
+
+    def __str__(self):
+        _id = f'Input {self.get_input_report_id():x}'
+        _info = ''
+        if self.get_input_report_id() == 0x21:
+            _info = self.get_reply_to_subcommand_id()
+        _bytes = ' '.join(f'{byte:x}' for byte in bytes(self))
+
+        return f'{_id} {_info}\n{_bytes}'
 
 
 class SubCommand(Enum):
@@ -216,6 +234,7 @@ class SubCommand(Enum):
 class OutputReportID(Enum):
     SUB_COMMAND = 0x01
     RUMBLE_ONLY = 0x10
+    REQUEST_IR_NFC_MCU = 0x11
 
 
 class OutputReport:
@@ -349,3 +368,12 @@ class OutputReport:
 
     def __bytes__(self):
         return bytes(self.data)
+
+    def __str__(self):
+        _id = f'Output {self.get_output_report_id()}'
+        _info = ''
+        if self.get_output_report_id() == OutputReportID.SUB_COMMAND:
+            _info = self.get_sub_command()
+        _bytes = ' '.join(f'{byte:x}' for byte in bytes(self))
+
+        return f'{_id} {_info}\n{_bytes}'

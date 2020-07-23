@@ -1,7 +1,40 @@
 import asyncio
 import logging
+from contextlib import contextmanager
+
+import hid
 
 logger = logging.getLogger(__name__)
+
+
+class AsyncHID(hid.Device):
+    def __init__(self, *args, loop=asyncio.get_event_loop(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self._loop = loop
+
+        self._write_lock = asyncio.Lock()
+        self._read_lock = asyncio.Lock()
+
+    async def read(self, size, timeout=None):
+        async with self._read_lock:
+            return await self._loop.run_in_executor(None, hid.Device.read, self, size, timeout)
+
+    async def write(self, data):
+        async with self._write_lock:
+            return await self._loop.run_in_executor(None, hid.Device.write, self, data)
+
+
+@contextmanager
+def get_output(path=None, open_flags='wb', default=None):
+    """
+    Context manager that open the file a path was given, otherwise returns default value.
+    """
+    if path is not None:
+        file = open(path, open_flags)
+        yield file
+        file.close()
+    else:
+        yield default
 
 
 def get_bit(value, n):
@@ -10,6 +43,25 @@ def get_bit(value, n):
 
 def flip_bit(value, n):
     return value ^ (1 << n)
+
+
+def create_error_check_callback(ignore=None):
+    """
+    Creates callback causing errors of a finished future to be raised.
+    Useful for debugging futures that are never awaited.
+    :param ignore: Any number of errors to ignore.
+    :returns callback which can be added to a future with future.add_done_callback(...)
+    """
+    def callback(future):
+        if ignore:
+            try:
+                future.result()
+            except ignore:
+                # ignore suppressed errors
+                pass
+        else:
+            future.result()
+    return callback
 
 
 async def run_system_command(cmd):
