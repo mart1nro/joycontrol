@@ -24,9 +24,7 @@ def file_custom_SPI(SpiFile, color):
     Spi.close()
     return
 def var_custom_SPI(SpiFile, color):
-    if isinstance(color, list) != True:
-        print("color is not list: ERR in Spicolor")
-        return False
+    color = color.split()
     if len(color) < 3:
         print("At least 3 values must be given: ERR in Spicolor")
         return False
@@ -36,7 +34,6 @@ def var_custom_SPI(SpiFile, color):
         if i > 255:
             print(i + " is bigger than 255: ERR in Spicolor")
             return False
-    print(color[0])
     r = color[0]
     b = color[1]
     g = color[2]
