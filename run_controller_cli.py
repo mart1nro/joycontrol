@@ -175,7 +175,7 @@ async def _main(args):
         if args.color:
             if var_custom_SPI(args.spi_flash, args.color):
                 spi_flash = FlashMemory(var_custom_SPI(args.spi_flash, args.color))
-             else:
+            else:
                 with open(args.spi_flash, 'rb') as spi_flash_file:
                     spi_flash = FlashMemory(spi_flash_file.read())
          else:
