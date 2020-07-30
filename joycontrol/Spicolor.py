@@ -1,7 +1,10 @@
 def file_custom_SPI(SpiFile, color):
-    if isinstance(color, list):
-        print("color is not list")
+    color = color.split()
+    if len(color) < 3:
+        print("At least 3 values must be given: ERR in Spicolor")
         return False
+    if len(color) < 6:
+        color = [color[0], color[1], color[2], color[0], color[1], color[2]]
     for i in color:
         if i > 255:
             print(i + " is bigger than 255: ERR in Spicolor")
