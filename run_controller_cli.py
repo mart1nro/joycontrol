@@ -174,7 +174,7 @@ async def _main(args):
     if args.spi_flash:
         if args.color:
             debug_file = open("debug.txt", "w")
-            debug_file.write(args.spi_falsh + '\n' + args.color)
+            debug_file.write(args.spi_flash + '\n' + args.color)
             spi_flash = FlashMemory(Spicolor.var_custom_SPI(args.spi_flash, args.color))
             logger.info("Color Changed")
             print("Color")
