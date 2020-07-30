@@ -175,7 +175,7 @@ async def _main(args):
         if args.color:
             try:
                 r, g, b, r2, g2, b2 = args.spi_flash
-            exept:
+            except:
                 r, g, b = args.spi_flash
                 r2 = r
                 g2 = g
