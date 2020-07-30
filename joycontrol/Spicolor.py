@@ -38,6 +38,7 @@ def var_custom_SPI(SpiFile, color):
             i = int(i)
         except:
             print(i + "is not convertable to int")
+            return False
         if i > 255:
             print(i + " is bigger than 255: ERR in Spicolor")
             return False
