@@ -178,7 +178,7 @@ async def _main(args):
             else:
                 with open(args.spi_flash, 'rb') as spi_flash_file:
                     spi_flash = FlashMemory(spi_flash_file.read())
-         else:
+        else:
             with open(args.spi_flash, 'rb') as spi_flash_file:
                 spi_flash = FlashMemory(spi_flash_file.read())
     else:
