@@ -14,6 +14,7 @@ from joycontrol.controller_state import ControllerState, button_push
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
 from joycontrol.server import create_hid_server
+from joycontrol import Spicolor
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,15 @@ async def mash_button(controller_state, button, interval):
 async def _main(args):
     # parse the spi flash
     if args.spi_flash:
+        if args.color:
+            try:
+                r, g, b, r2, g2, b2 = args.spi_flash
+            exept:
+                r, g, b = args.spi_flash
+                r2 = r
+                g2 = g
+                b2 = b
+            spi_flash = FlashMemory(var_custom_SPI(args.spi_flash, r, g, b, r2, g2, b2))
         with open(args.spi_flash, 'rb') as spi_flash_file:
             spi_flash = FlashMemory(spi_flash_file.read())
     else:
@@ -268,6 +278,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--log')
     parser.add_argument('-d', '--device_id')
     parser.add_argument('--spi_flash')
+    parser.add_argument('--color')
     parser.add_argument('-r', '--reconnect_bt_addr', type=str, default=None,
                         help='The Switch console Bluetooth address, for reconnecting as an already paired controller')
     parser.add_argument('--nfc', type=str, default=None)
