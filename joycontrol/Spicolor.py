@@ -34,15 +34,19 @@ def var_custom_SPI(SpiFile, color):
     if len(color) < 6:
         color = [color[0], color[1], color[2], color[0], color[1], color[2]]
     for i in color:
+        try:
+            i = int(i)
+        except:
+            print(i + "is not convertable to int")
         if i > 255:
             print(i + " is bigger than 255: ERR in Spicolor")
             return False
-    r = color[0]
-    b = color[1]
-    g = color[2]
-    r2 = color[3]
-    g2 = color[4]
-    b2 = color[5]
+    r = int(color[0])
+    b = int(color[1])
+    g = int(color[2])
+    r2 = int(color[3])
+    g2 = int(color[4])
+    b2 = int(color[5])
     Spi = open(SpiFile, "r+b")
     Spi.seek(0)
     fStart = Spi.read(24656)
