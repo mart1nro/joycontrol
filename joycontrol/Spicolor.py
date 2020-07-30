@@ -42,8 +42,8 @@ def var_custom_SPI(SpiFile, color):
             print(i + " is bigger than 255: ERR in Spicolor")
             return False
     r = int(color[0])
-    b = int(color[1])
-    g = int(color[2])
+    g = int(color[1])
+    b = int(color[2])
     r2 = int(color[3])
     g2 = int(color[4])
     b2 = int(color[5])
