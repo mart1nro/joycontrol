@@ -173,8 +173,8 @@ async def _main(args):
     # parse the spi flash
     if args.spi_flash:
         if args.color:
-            if var_custom_SPI(args.spi_flash, args.color):
-                spi_flash = FlashMemory(var_custom_SPI(args.spi_flash, args.color))
+            if Spicolor.var_custom_SPI(args.spi_flash, args.color):
+                spi_flash = FlashMemory(Spicolor.var_custom_SPI(args.spi_flash, args.color))
             else:
                 with open(args.spi_flash, 'rb') as spi_flash_file:
                     spi_flash = FlashMemory(spi_flash_file.read())
