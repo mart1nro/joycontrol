@@ -173,17 +173,20 @@ async def _main(args):
     # parse the spi flash
     if args.spi_flash:
         if args.color:
-            if Spicolor.var_custom_SPI(args.spi_flash, args.color):
+            if Spicolor.var_custom_SPI(args.spi_flash, args.color) != False:
                 spi_flash = FlashMemory(Spicolor.var_custom_SPI(args.spi_flash, args.color))
                 logger.info("Color Changed")
+                print("Color")
             else:
                 with open(args.spi_flash, 'rb') as spi_flash_file:
                     spi_flash = FlashMemory(spi_flash_file.read())
                     logger.info("EX1")
+                    print("EX1")
         else:
             with open(args.spi_flash, 'rb') as spi_flash_file:
                 spi_flash = FlashMemory(spi_flash_file.read())
                 logger.info("EX2")
+                print("EX2")
     else:
         # Create memory containing default controller stick calibration
         spi_flash = FlashMemory()
