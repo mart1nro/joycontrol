@@ -118,7 +118,7 @@ class ButtonState:
             self._available_buttons = {'y', 'x', 'b', 'a', 'sr', 'sl', 'r', 'zr',
                                        'plus', 'r_stick', 'home'}
         elif self.controller == Controller.JOYCON_L:
-            self._available_buttons = {'plus', 'l_stick', 'capture',
+            self._available_buttons = {'minus', 'l_stick', 'capture',
                                        'down', 'up', 'right', 'left', 'sr', 'sl', 'l', 'zl'}
 
         # byte 1
