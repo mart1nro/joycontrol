@@ -187,7 +187,7 @@ class ButtonState:
         self._byte_1 = self._byte_2 = self._byte_3 = 0
 
 
-async def button_push(controller_state, *buttons, sec=0.1):
+async def button_down(controller_state, *buttons):
     if not buttons:
         raise ValueError('No Buttons were given.')
 
@@ -199,7 +199,13 @@ async def button_push(controller_state, *buttons, sec=0.1):
 
     # send report
     await controller_state.send()
-    await asyncio.sleep(sec)
+
+
+async def button_up(controller_state, *buttons):
+    if not buttons:
+        raise ValueError('No Buttons were given.')
+
+    button_state = controller_state.button_state
 
     for button in buttons:
         # release button
@@ -207,6 +213,12 @@ async def button_push(controller_state, *buttons, sec=0.1):
 
     # send report
     await controller_state.send()
+
+
+async def button_push(controller_state, *buttons, sec=0.1):
+    await button_down(controller_state, *buttons)
+    await asyncio.sleep(sec)
+    await button_up(controller_state, *buttons)
 
 
 class _StickCalibration:

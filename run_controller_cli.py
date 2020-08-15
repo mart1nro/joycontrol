@@ -10,7 +10,7 @@ from aioconsole import ainput
 from joycontrol import logging_default as log, utils
 from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
-from joycontrol.controller_state import ControllerState, button_push
+from joycontrol.controller_state import ControllerState, button_push, button_down, button_up
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
 from joycontrol.server import create_hid_server
@@ -150,11 +150,7 @@ async def set_nfc(controller_state, file_path):
 
 
 async def mash_button(controller_state, button, interval):
-    # waits until controller is fully connected
-    await controller_state.connect()
-
-    if button not in controller_state.button_state.get_available_buttons():
-        raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
+    await ensure_valid_button(controller_state, button)
 
     user_input = asyncio.ensure_future(
         ainput(prompt=f'Pressing the {button} button every {interval} seconds... Press <enter> to stop.')
@@ -166,6 +162,24 @@ async def mash_button(controller_state, button, interval):
 
     # await future to trigger exceptions in case something went wrong
     await user_input
+
+
+async def hold_button(controller_state, button):
+    await ensure_valid_button(controller_state, button)
+    await button_down(controller_state, button)
+
+
+async def release_button(controller_state, button):
+    await ensure_valid_button(controller_state, button)
+    await button_up(controller_state, button)
+
+
+async def ensure_valid_button(controller_state, button):
+    # waits until controller is fully connected
+    await controller_state.connect()
+
+    if button not in controller_state.button_state.get_available_buttons():
+        raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
 
 
 async def _main(args):
@@ -219,6 +233,38 @@ async def _main(args):
 
         # add the script from above
         cli.add_command('mash', call_mash_button)
+
+        # Hold a button command
+        async def hold(*args):
+            """
+            hold - Press and hold a specified button
+
+            Usage:
+                hold <button>
+            """
+            if not args:
+                raise ValueError('"hold" command requires a button!')
+
+            await hold_button(controller_state, args[0])
+
+        # add the script from above
+        cli.add_command('hold', hold)
+
+        # Release a button command
+        async def release(*args):
+            """
+            release - Release a held button
+
+            Usage:
+                release <button>
+            """
+            if not args:
+                raise ValueError('"release" command requires a button!')
+
+            await release_button(controller_state, args[0])
+
+        # add the script from above
+        cli.add_command('release', release)
 
         # Create nfc command
         async def nfc(*args):
