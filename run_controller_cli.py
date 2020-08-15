@@ -136,19 +136,6 @@ async def test_controller_buttons(controller_state: ControllerState):
     await button_push(controller_state, 'home')
 
 
-async def set_nfc(controller_state, file_path):
-    """
-    Sets nfc content of the controller state to contents of the given file.
-    :param controller_state: Emulated controller state
-    :param file_path: Path to nfc dump file
-    """
-    loop = asyncio.get_event_loop()
-
-    with open(file_path, 'rb') as nfc_file:
-        content = await loop.run_in_executor(None, nfc_file.read)
-        controller_state.set_nfc(content)
-
-
 def ensure_valid_button(controller_state, *buttons):
     """
     Raise ValueError if any of the given buttons os not part of the controller state.
@@ -177,6 +164,106 @@ async def mash_button(controller_state, button, interval):
     await user_input
 
 
+def _register_commands_with_controller_state(controller_state, cli):
+    """
+    Commands registered here can use the given controller state.
+    The doc string of commands will be printed by the CLI when calling "help"
+    :param cli:
+    :param controller_state:
+    """
+    async def test_buttons():
+        """
+        test_buttons - Navigates to the "Test Controller Buttons" menu and presses all buttons.
+        """
+        await test_controller_buttons(controller_state)
+
+    cli.add_command(test_buttons.__name__, test_buttons)
+
+    # Mash a button command
+    async def mash(*args):
+        """
+        mash - Mash a specified button at a set interval
+
+        Usage:
+            mash <button> <interval>
+        """
+        if not len(args) == 2:
+            raise ValueError('"mash_button" command requires a button and interval as arguments!')
+
+        button, interval = args
+        await mash_button(controller_state, button, interval)
+
+    cli.add_command(mash.__name__, mash)
+
+    # Hold a button command
+    async def hold(*args):
+        """
+        hold - Press and hold specified buttons
+
+        Usage:
+            hold <button>
+
+        Example:
+            hold a b
+        """
+        if not args:
+            raise ValueError('"hold" command requires a button!')
+
+        ensure_valid_button(controller_state, *args)
+
+        # wait until controller is fully connected
+        await controller_state.connect()
+        await button_press(controller_state, *args)
+
+    cli.add_command(hold.__name__, hold)
+
+    # Release a button command
+    async def release(*args):
+        """
+        release - Release specified buttons
+
+        Usage:
+            release <button>
+
+        Example:
+            release a b
+        """
+        if not args:
+            raise ValueError('"release" command requires a button!')
+
+        ensure_valid_button(controller_state, *args)
+
+        # wait until controller is fully connected
+        await controller_state.connect()
+        await button_release(controller_state, *args)
+
+    cli.add_command(release.__name__, release)
+
+    # Create nfc command
+    async def nfc(*args):
+        """
+        nfc - Sets nfc content
+
+        Usage:
+            nfc <file_name>          Set controller state NFC content to file
+            nfc remove               Remove NFC content from controller state
+        """
+        if controller_state.get_controller() == Controller.JOYCON_L:
+            raise ValueError('NFC content cannot be set for JOYCON_L')
+        elif not args:
+            raise ValueError('"nfc" command requires file path to an nfc dump as argument!')
+        elif args[0] == 'remove':
+            controller_state.set_nfc(None)
+            print('Removed nfc content.')
+        else:
+            _loop = asyncio.get_event_loop()
+            with open(args[0], 'rb') as nfc_file:
+                content = await _loop.run_in_executor(None, nfc_file.read)
+                controller_state.set_nfc(content)
+
+    cli.add_command(nfc.__name__, nfc)
+
+
 async def _main(args):
     # parse the spi flash
     if args.spi_flash:
@@ -190,6 +277,7 @@ async def _main(args):
     controller = Controller.from_arg(args.controller)
 
     with utils.get_output(path=args.log, default=None) as capture_file:
+        # prepare the the emulated controller
         factory = controller_protocol_factory(controller, spi_flash=spi_flash)
         ctl_psm, itr_psm = 17, 19
         transport, protocol = await create_hid_server(factory, reconnect_bt_addr=args.reconnect_bt_addr,
@@ -201,106 +289,14 @@ async def _main(args):
 
         # Create command line interface and add some extra commands
         cli = ControllerCLI(controller_state)
+        _register_commands_with_controller_state(controller_state, cli)
+        cli.add_command('amiibo', ControllerCLI.deprecated('Command was removed - use "nfc" instead!'))
 
-        # Wrap the script so we can pass the controller state. The doc string will be printed when calling 'help'
-        async def _run_test_controller_buttons():
-            """
-            test_buttons - Navigates to the "Test Controller Buttons" menu and presses all buttons.
-            """
-            await test_controller_buttons(controller_state)
-
-        # add the script from above
-        cli.add_command('test_buttons', _run_test_controller_buttons)
-
-        # Mash a button command
-        async def call_mash_button(*args):
-            """
-            mash - Mash a specified button at a set interval
-
-            Usage:
-                mash <button> <interval>
-            """
-            if not len(args) == 2:
-                raise ValueError('"mash_button" command requires a button and interval as arguments!')
-
-            button, interval = args
-            await mash_button(controller_state, button, interval)
-
-        # add the script from above
-        cli.add_command('mash', call_mash_button)
-
-        # Hold a button command
-        async def hold(*args):
-            """
-            hold - Press and hold specified buttons
-
-            Usage:
-                hold <button>
-
-            Example:
-                hold a b
-            """
-            if not args:
-                raise ValueError('"hold" command requires a button!')
-
-            ensure_valid_button(controller_state, *args)
-
-            # wait until controller is fully connected
-            await controller_state.connect()
-            await button_press(controller_state, *args)
-
-        # add the script from above
-        cli.add_command('hold', hold)
-
-        # Release a button command
-        async def release(*args):
-            """
-            release - Release specified buttons
-
-            Usage:
-                release <button>
-
-            Example:
-                release a b
-            """
-            if not args:
-                raise ValueError('"release" command requires a button!')
-
-            ensure_valid_button(controller_state, *args)
-
-            # wait until controller is fully connected
-            await controller_state.connect()
-            await button_release(controller_state, *args)
-
-        # add the script from above
-        cli.add_command('release', release)
-
-        # Create nfc command
-        async def nfc(*args):
-            """
-            nfc - Sets nfc content
-
-            Usage:
-                nfc <file_name>          Set controller state NFC content to file
-                nfc remove               Remove NFC content from controller state
-            """
-            if controller_state.get_controller() == Controller.JOYCON_L:
-                raise ValueError('NFC content cannot be set for JOYCON_L')
-            elif not args:
-                raise ValueError('"nfc" command requires file path to an nfc dump as argument!')
-            elif args[0] == 'remove':
-                controller_state.set_nfc(None)
-                print('Removed nfc content.')
-            else:
-                await set_nfc(controller_state, args[0])
-
-        # add the script from above
-        cli.add_command('nfc', nfc)
-        cli.add_command('amiibo', ControllerCLI.deprecated('Command is deprecated - use "nfc" instead!'))
-
+        # set default nfc content supplied by argument
         if args.nfc is not None:
-            await nfc(args.nfc)
+            await cli.commands['nfc'](args.nfc)
 
+        # run the cli
         try:
             await cli.run()
         finally:
