@@ -10,7 +10,7 @@ from aioconsole import ainput
 from joycontrol import logging_default as log, utils
 from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
-from joycontrol.controller_state import ControllerState, button_push, button_down, button_up
+from joycontrol.controller_state import ControllerState, button_push, button_press, button_release
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
 from joycontrol.server import create_hid_server
@@ -149,8 +149,21 @@ async def set_nfc(controller_state, file_path):
         controller_state.set_nfc(content)
 
 
+def ensure_valid_button(controller_state, *buttons):
+    """
+    Raise ValueError if any of the given buttons os not part of the controller state.
+    :param controller_state:
+    :param buttons: Any number of buttons to check (see ButtonState.get_available_buttons)
+    """
+    for button in buttons:
+        if button not in controller_state.button_state.get_available_buttons():
+            raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
+
+
 async def mash_button(controller_state, button, interval):
-    await ensure_valid_button(controller_state, button)
+    # wait until controller is fully connected
+    await controller_state.connect()
+    ensure_valid_button(controller_state, button)
 
     user_input = asyncio.ensure_future(
         ainput(prompt=f'Pressing the {button} button every {interval} seconds... Press <enter> to stop.')
@@ -162,24 +175,6 @@ async def mash_button(controller_state, button, interval):
 
     # await future to trigger exceptions in case something went wrong
     await user_input
-
-
-async def hold_button(controller_state, button):
-    await ensure_valid_button(controller_state, button)
-    await button_down(controller_state, button)
-
-
-async def release_button(controller_state, button):
-    await ensure_valid_button(controller_state, button)
-    await button_up(controller_state, button)
-
-
-async def ensure_valid_button(controller_state, button):
-    # waits until controller is fully connected
-    await controller_state.connect()
-
-    if button not in controller_state.button_state.get_available_buttons():
-        raise ValueError(f'Button {button} does not exist on {controller_state.get_controller()}')
 
 
 async def _main(args):
@@ -237,15 +232,22 @@ async def _main(args):
         # Hold a button command
         async def hold(*args):
             """
-            hold - Press and hold a specified button
+            hold - Press and hold specified buttons
 
             Usage:
                 hold <button>
+
+            Example:
+                hold a b
             """
             if not args:
                 raise ValueError('"hold" command requires a button!')
 
-            await hold_button(controller_state, args[0])
+            ensure_valid_button(controller_state, *args)
+
+            # wait until controller is fully connected
+            await controller_state.connect()
+            await button_press(controller_state, *args)
 
         # add the script from above
         cli.add_command('hold', hold)
@@ -253,15 +255,22 @@ async def _main(args):
         # Release a button command
         async def release(*args):
             """
-            release - Release a held button
+            release - Release specified buttons
 
             Usage:
                 release <button>
+
+            Example:
+                release a b
             """
             if not args:
                 raise ValueError('"release" command requires a button!')
 
-            await release_button(controller_state, args[0])
+            ensure_valid_button(controller_state, *args)
+
+            # wait until controller is fully connected
+            await controller_state.connect()
+            await button_release(controller_state, *args)
 
         # add the script from above
         cli.add_command('release', release)
@@ -288,7 +297,6 @@ async def _main(args):
         # add the script from above
         cli.add_command('nfc', nfc)
         cli.add_command('amiibo', ControllerCLI.deprecated('Command is deprecated - use "nfc" instead!'))
-
 
         if args.nfc is not None:
             await nfc(args.nfc)
