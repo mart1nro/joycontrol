@@ -7,7 +7,7 @@ Tested on Ubuntu 19.10, and with Raspberry Pi 3B+ and 4B Raspbian GNU/Linux 10 (
 Emulation of JOYCON_R, JOYCON_L and PRO_CONTROLLER. Able to send:
 - button commands
 - stick state
-- nfc data
+- ~~nfc data~~ (removed, see [#80](https://github.com/mart1nro/joycontrol/issues/80))
 
 ## Installation
 - Install dependencies
