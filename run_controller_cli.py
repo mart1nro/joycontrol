@@ -248,6 +248,7 @@ def _register_commands_with_controller_state(controller_state, cli):
             nfc <file_name>          Set controller state NFC content to file
             nfc remove               Remove NFC content from controller state
         """
+        logger.error('NFC Support was removed from joycontrol - see https://github.com/mart1nro/joycontrol/issues/80')
         if controller_state.get_controller() == Controller.JOYCON_L:
             raise ValueError('NFC content cannot be set for JOYCON_L')
         elif not args:
