@@ -39,8 +39,11 @@ class ControllerProtocol(BaseProtocol):
 
         self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
         self._controller_state_sender = None
+        self._writer = None
+        # daley between two input reports
+        self.send_delay = 1/15
 
-        # None = Just answer to sub commands
+        # None = Send empty input reports & answer to sub commands
         self._input_report_mode = None
 
         # This event gets triggered once the Switch assigns a player number to the controller and accepts user inputs
@@ -90,6 +93,11 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_timer(self._input_report_timer)
         self._input_report_timer = (self._input_report_timer + 1) % 0x100
 
+        # this would close the grip menu, so go into fullspeed
+        if self._controller_state.button_state.a_is_set() or self._controller_state.button_state.b_is_set():
+            print("Exiting grip-menu")
+            self.send_delay = 1 / 60
+
         await self.transport.write(input_report)
 
         self._controller_state.sig_is_send.set()
@@ -107,6 +115,7 @@ class ControllerProtocol(BaseProtocol):
     def connection_made(self, transport: BaseTransport) -> None:
         logger.debug('Connection established.')
         self.transport = transport
+        self._writer = asyncio.ensure_future(self.writer())
 
     def connection_lost(self, exc: Optional[Exception] = None) -> None:
         if self.transport is not None:
@@ -121,92 +130,37 @@ class ControllerProtocol(BaseProtocol):
         # TODO?
         raise NotImplementedError()
 
-    async def input_report_mode_full(self):
+    async def writer(self):
         """
-        Continuously sends:
-            0x30 input reports containing the controller state OR
-            0x31 input reports containing the controller state and nfc data
+        This continuously sends input reports to the switch.
+        This relys on the asyncio scheduler to sneak the additional
+        subcommand-replys in
         """
-        if self.transport.is_reading():
-            raise ValueError('Transport must be paused in full input report mode')
+        while self.transport:
+            last_send_time = time.time()
+            input_report = InputReport()
+            if self._input_report_mode is None:
+                input_report.set_input_report_id(0x30)
+            elif self._input_report_mode == 0x30 or self._input_report_mode == 0x31:
+                input_report.set_vibrator_input()
+                input_report.set_misc()
+                input_report.set_input_report_id(self._input_report_mode)
+                input_report.set_6axis_data()
+                if self._input_report_mode == 0x31:
+                    input_report.set_ir_nfc_data(self.mcu.sending_31())
+            await self.write(input_report)
 
-        # send state at 66Hz
-        send_delay = 0.015
-        await asyncio.sleep(send_delay)
-        last_send_time = time.time()
+            # calculate delay
+            current_time = time.time()
+            active_time = current_time - last_send_time
+            sleep_time = self.send_delay - active_time
+            last_send_time = current_time
+            if sleep_time < 0:
+                # logger.warning(f'Code is running {abs(sleep_time)} s too slow!')
+                sleep_time = 0
 
-        input_report = InputReport()
-        input_report.set_vibrator_input()
-        input_report.set_misc()
-        if self._input_report_mode is None:
-            raise ValueError('Input report mode is not set.')
-        input_report.set_input_report_id(self._input_report_mode)
-
-        reader = asyncio.ensure_future(self.transport.read())
-
-        try:
-            while True:
-                reply_send = False
-                if reader.done():
-                    data = await reader
-
-                    reader = asyncio.ensure_future(self.transport.read())
-
-                    try:
-                        report = OutputReport(list(data))
-                        output_report_id = report.get_output_report_id()
-
-                        if output_report_id == OutputReportID.RUMBLE_ONLY:
-                            # TODO
-                            pass
-                        elif output_report_id == OutputReportID.SUB_COMMAND:
-                            reply_send = await self._reply_to_sub_command(report)
-                        elif output_report_id == OutputReportID.REQUEST_IR_NFC_MCU:
-                            # TODO NFC
-                            raise NotImplementedError('NFC communictation is not implemented.')                            
-                        else:
-                            logger.warning(f'Report unknown output report "{output_report_id}" - IGNORE')
-                    except ValueError as v_err:
-                        logger.warning(f'Report parsing error "{v_err}" - IGNORE')
-                    except NotImplementedError as err:
-                        logger.warning(err)
-
-                if reply_send:
-                    # Hack: Adding a delay here to avoid flooding during pairing
-                    await asyncio.sleep(0.3)
-                else:
-                    # write 0x30 input report.
-                    # TODO: set some sensor data
-                    input_report.set_6axis_data()
-
-                    # TODO NFC - set nfc data
-                    if input_report.get_input_report_id() == 0x31:
-                        pass
-
-                    await self.write(input_report)
-
-                # calculate delay
-                current_time = time.time()
-                time_delta = time.time() - last_send_time
-                sleep_time = send_delay - time_delta
-                last_send_time = current_time
-
-                if sleep_time < 0:
-                    # logger.warning(f'Code is running {abs(sleep_time)} s too slow!')
-                    sleep_time = 0
-
-                await asyncio.sleep(sleep_time)
-
-        except NotConnectedError as err:
-            # Stop 0x30 input report mode if disconnected.
-            logger.error(err)
-        finally:
-            # cleanup
-            self._input_report_mode = None
-            # cancel the reader
-            with suppress(asyncio.CancelledError, NotConnectedError):
-                if reader.cancel():
-                    await reader
+            await asyncio.sleep(sleep_time)
+        return None
 
     async def report_received(self, data: Union[bytes, Text], addr: Tuple[str, int]) -> None:
         self._data_received.set()
@@ -225,8 +179,12 @@ class ControllerProtocol(BaseProtocol):
 
         if output_report_id == OutputReportID.SUB_COMMAND:
             await self._reply_to_sub_command(report)
-        # elif output_report_id == OutputReportID.RUMBLE_ONLY:
-        #    pass
+        elif output_report_id == OutputReportID.RUMBLE_ONLY:
+            #TODO Rumble
+            pass
+        elif output_report_id == OutputReportID.REQUEST_IR_NFC_MCU:
+            #TODO NFC
+            pass
         else:
             logger.warning(f'Output report {output_report_id} not implemented - ignoring')
 
@@ -342,30 +300,7 @@ class ControllerProtocol(BaseProtocol):
         if self._input_report_mode == sub_command_data[0]:
             logger.warning(f'Already in input report mode {sub_command_data[0]} - ignoring request')
 
-        # Start input report reader
-        if sub_command_data[0] in (0x30, 0x31):
-            new_reader = asyncio.ensure_future(self.input_report_mode_full())
-        else:
-            logger.error(f'input report mode {sub_command_data[0]} not implemented - ignoring request')
-            return
-
-        # Replace the currently running reader with the input report mode sender,
-        # which will also handle incoming requests in the future
-
-        self.transport.pause_reading()
-
-        # We need to replace the reader in the future because this function was probably called by it
-        async def set_reader():
-            await self.transport.set_reader(new_reader)
-
-            logger.info(f'Setting input report mode to {hex(sub_command_data[0])}...')
-            self._input_report_mode = sub_command_data[0]
-
-            self.transport.resume_reading()
-
-        asyncio.ensure_future(set_reader()).add_done_callback(
-            utils.create_error_check_callback()
-        )
+        self._input_report_mode = sub_command_data[0]
 
         # Send acknowledgement
         input_report = InputReport()

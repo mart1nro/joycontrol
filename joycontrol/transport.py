@@ -64,30 +64,6 @@ class L2CAP_Transport(asyncio.Transport):
         callback = utils.create_error_check_callback(ignore=asyncio.CancelledError)
         self._read_thread.add_done_callback(callback)
 
-    async def set_reader(self, reader: asyncio.Future):
-        """
-        Cancel the currently running reader and register the new one.
-        A reader is a coroutine that calls this transports 'read' function.
-        The 'read' function calls can be paused by calling pause_reading of this transport.
-        :param reader: future reader
-        """
-        if self._read_thread is not None:
-            # cancel currently running reader
-            if self._read_thread.cancel():
-                try:
-                    await self._read_thread
-                except asyncio.CancelledError:
-                    pass
-
-        # Create callback for debugging in case the reader is failing
-        err_callback = utils.create_error_check_callback(ignore=asyncio.CancelledError)
-        reader.add_done_callback(err_callback)
-
-        self._read_thread = reader
-
-    def get_reader(self):
-        return self._read_thread
-
     async def read(self):
         """
         Read data from the underlying socket. This function waits,
