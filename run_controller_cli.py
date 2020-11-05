@@ -248,7 +248,7 @@ def _register_commands_with_controller_state(controller_state, cli):
             nfc <file_name>          Set controller state NFC content to file
             nfc remove               Remove NFC content from controller state
         """
-        logger.error('NFC Support was removed from joycontrol - see https://github.com/mart1nro/joycontrol/issues/80')
+        #logger.error('NFC Support was removed from joycontrol - see https://github.com/mart1nro/joycontrol/issues/80')
         if controller_state.get_controller() == Controller.JOYCON_L:
             raise ValueError('NFC content cannot be set for JOYCON_L')
         elif not args:
@@ -260,12 +260,16 @@ def _register_commands_with_controller_state(controller_state, cli):
             _loop = asyncio.get_event_loop()
             with open(args[0], 'rb') as nfc_file:
                 content = await _loop.run_in_executor(None, nfc_file.read)
+                logger.info("CLI: Set nfc content")
                 controller_state.set_nfc(content)
 
     cli.add_command(nfc.__name__, nfc)
 
 
 async def _main(args):
+    # Get controller name to emulate from arguments
+    controller = Controller.from_arg(args.controller)
+
     # parse the spi flash
     if args.spi_flash:
         with open(args.spi_flash, 'rb') as spi_flash_file:
@@ -274,8 +278,6 @@ async def _main(args):
         # Create memory containing default controller stick calibration
         spi_flash = FlashMemory()
 
-    # Get controller name to emulate from arguments
-    controller = Controller.from_arg(args.controller)
 
     with utils.get_output(path=args.log, default=None) as capture_file:
         # prepare the the emulated controller
