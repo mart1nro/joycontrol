@@ -7,7 +7,7 @@ Tested on Ubuntu 19.10, and with Raspberry Pi 3B+ and 4B Raspbian GNU/Linux 10 (
 Emulation of JOYCON_R, JOYCON_L and PRO_CONTROLLER. Able to send:
 - button commands
 - stick state
-- ~~nfc data~~ (removed, see [#80](https://github.com/mart1nro/joycontrol/issues/80))
+- nfc data read
 
 ## Installation
 - Install dependencies
@@ -51,7 +51,7 @@ Call "help" to see a list of available commands.
 - Some bluetooth adapters seem to cause disconnects for reasons unknown, try to use an usb adapter instead 
 - Incompatibility with Bluetooth "input" plugin requires a bluetooth restart, see [#8](https://github.com/mart1nro/joycontrol/issues/8)
 - It seems like the Switch is slower processing incoming messages while in the "Change Grip/Order" menu.
-  This causes flooding of packets and makes pairing somewhat inconsistent.
+  This causes flooding of packets and makes input after initial pairing somewhat inconsistent.
   Not sure yet what exactly a real controller does to prevent that.
   A workaround is to use the reconnect option after a controller was paired once, so that
   opening of the "Change Grip/Order" menu is not required.

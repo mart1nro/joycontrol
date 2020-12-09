@@ -1,10 +1,15 @@
 import enum
 import logging
 import crc8
+import traceback
 
 from joycontrol.controller_state import ControllerState
 
 logger = logging.getLogger(__name__)
+
+def debug(args):
+    print(args)
+    return args
 
 ###############################################################
 ## This simulates the MCU in the right joycon/Pro-Controller ##
@@ -18,12 +23,36 @@ logger = logging.getLogger(__name__)
 #     - IR-camera
 #     - writing to Amiibo
 
+# These Values are used in set_power, set_config and get_status packets
+# But not all of them can appear in every one
+# see https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp l 2359 for set_config
 class MCUPowerState(enum.Enum):
-    SUSPENDED = 0x00
-    READY = 0x01
+    SUSPENDED = 0x00 # set_power
+    READY = 0x01 # set_power, set_config, get_status
     READY_UPDATE = 0x02
-    CONFIGURED_NFC = 0x10
-    CONFIGURED_IR = 0x11  # TODO: support this
+    CONFIGURED_NFC = 0x04 # set_config, get_status
+    # CONFIGURED_IR = 0x05  # TODO: support this
+    # CONFIGUERED_UPDATE = 0x06
+
+SET_POWER_VALUES = (
+    MCUPowerState.SUSPENDED.value,
+    MCUPowerState.READY.value,
+#   MCUPowerState.READY_UPDATE.value,
+)
+
+SET_CONFIG_VALUES = (
+    MCUPowerState.READY.value,
+    MCUPowerState.CONFIGURED_NFC.value,
+#   MCUPowerState.CONFIGURED_IR.value,
+)
+
+GET_STATUS_VALUES = (
+    MCUPowerState.READY.value,
+#   MCUPowerState.READY_UPDATE.value,
+    MCUPowerState.CONFIGURED_NFC.value,
+#   MCUPowerState.CONFIGURED_IR.value
+)
+
 
 def MCU_crc(data):
     if not isinstance(data, bytes):
@@ -34,6 +63,29 @@ def MCU_crc(data):
     return my_hash.digest()[0]
 
 
+class NFC_state(enum.Enum):
+    NONE = 0x00
+    POLL = 0x01
+    PENDING_READ = 0x02
+    POLL_AGAIN = 0x09
+
+
+class MCU_Message:
+    def __init__(self, *args, background=0, checksum=MCU_crc):
+        self.data = bytearray([background] * 313)
+        c = 0
+        for i in args:
+            if isinstance(i, str):
+                b = bytes.fromhex(i)
+            else:
+                b = bytes(i)
+            self.data[c:c+len(b)] = b
+        if checksum:
+            self.data[-1] = checksum(self.data[0:-1])
+
+    def __bytes__(self):
+        return self.data
+
 class MarvelCinematicUniverse:
     def __init__(self, controller: ControllerState):
 
@@ -43,13 +95,9 @@ class MarvelCinematicUniverse:
         # Just a store for the remaining configuration data
         self.configuration = None
 
-        # a cache to store the tag's data during reading
+        # a cache to store the tag's data between Poll and Read
         self.nfc_tag_data = None
-        # reading is done in multiple packets
-        # https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp line 2537
-        # there seem to be some flow-controls and order-controls in this process
-        # which is all hardcoded here
-        self.reading_cursor = None
+        self.nfc_state = NFC_state.NONE
 
         # NOT IMPLEMENTED
         # remove the tag from the controller after a successfull read
@@ -59,14 +107,35 @@ class MarvelCinematicUniverse:
         self._controller = controller
 
         # We are getting 0x11 commands to do something, but cannot answer directly
-        # answers are passed inside the input-reports that are sent regularly
-        # they also seem to just be repeated until a new request comes in
-        self.response = [0] * 313
+        # responses have to be passed in regular input reports
+        # If there was no Command, this is the default report
+        self.no_response = [0] * 313
+        self.no_response[0] = 0xff
+        self.no_response[-1] = MCU_crc(self.no_response[:-1])
+        self.response_queue = []
+        self.max_response_queue_len = 3
+
+        #debug
+        self.reading = 0
+
+    def _flush_response_queue(self):
+        self.response_queue = []
+
+    def _queue_response(self, resp):
+        if resp == None: # the if "missing return statement" because python
+            traceback.print_stack()
+            exit(1)
+        if len(self.response_queue) <= self.max_response_queue_len:
+            self.response_queue.append(resp)
+
+    def _force_queue_response(self, resp):
+        self.response_queue.append(resp)
 
     def set_remove_nfc_after_read(self, value):
         self.remove_nfc_after_read = value
 
     def set_nfc_tag_data(self, data):
+        logger.info("MCU-NFC: set NFC tag data")
         if not data:
             self.nfc_tag_data = None
         if not data is bytes:
@@ -76,20 +145,48 @@ class MarvelCinematicUniverse:
             return
         self.nfc_tag_data = data
 
-    def _get_status_data(self):
+    def entered_31_input_mode(self):
+        resp = [0] * 313
+        resp[0:8] = bytes.fromhex("0100000008001b01")
+        resp[-1] = MCU_crc(resp[:-1])
+        self._queue_response(resp)
+
+    def _get_status_data(self, args=None):
         """
         create a status packet to be used when responding to 1101 commands
         """
-        out = [0] * 313
         if self.power_state == MCUPowerState.SUSPENDED:
-            return out
-        else:
-            out[0:7] = bytes.fromhex("01000000030005")
-            if self.power_state == MCUPowerState.CONFIGURED_NFC:
-                out[7] = 0x04
-            else:
-                out[7] = 0x01
+            logger.warning("MCU: status request when disabled")
+            return self.no_response
+        elif self.power_state.value in GET_STATUS_VALUES:
+            resp = [0] * 313
+            resp[0:7] = bytes.fromhex("0100000008001b")
+            resp[7] = self.power_state.value
+            resp[-1] = MCU_crc(resp[:-1])
+            return resp
+            #self._queue_response(resp)
+            #return self._get_status_data()
+        #else:
+            #out = [0] * 313
+            #out[0:7] = bytes.fromhex("01000000030005")
+            #out[7] = MCUPowerState.READY.value
+            #out[-1] = MCU_crc(out[0:-1])
+            #return out
+
+    def _get_nfc_status_data(self, args):
+        out = [0] * 313
+        out[0:7] = bytes.fromhex("2a000500000931")
+        out[7] = self.nfc_state.value
+        if self.nfc_state == NFC_state.POLL and self._controller.get_nfc():
+            self.set_nfc_tag_data(self._controller.get_nfc())
+        if self.nfc_tag_data and self.nfc_state in (NFC_state.POLL, NFC_state.POLL_AGAIN):
+            out[8:16] = bytes.fromhex("0000000101020007")
+            out[16:19] = self.nfc_tag_data[0:3]
+            out[19:23] = self.nfc_tag_data[4:8]
+            self.nfc_state = NFC_state.POLL_AGAIN
         out[-1] = MCU_crc(out[0:-1])
+        self._queue_response(out)
+        self._queue_response(out)
         return out
 
     # I don't actually know if we are supposed to change the MCU-data based on
@@ -97,130 +194,121 @@ class MarvelCinematicUniverse:
     # so sending responses seems to not hurt
 
     def set_power_state_cmd(self, power_state):
-        # 1 == (READY = 1) evaluates to false. WHY?
-        if power_state in (MCUPowerState.SUSPENDED.value, MCUPowerState.READY.value):
+        logger.info(f"MCU: Set power state cmd {power_state}")
+        if power_state in SET_POWER_VALUES:
             self.power_state = MCUPowerState(power_state)
-            self.response = [0] * 313
-        if power_state == MCUPowerState.READY_UPDATE:
-            logger.error("NFC Update not implemented")
-        print(f"MCU: went into power_state {power_state}")
-        if self.power_state == MCUPowerState.SUSPENDED:
-            # the response probably doesnt matter.
-            self.response[0] = 0xFF
-            self.response[-1] = 0x6F
-        elif self.power_state == MCUPowerState.READY:
-            # this one does however
-            self.response[1] = 1
-            self.response[-1] = 0xc1
+        else:
+            logger.error(f"not implemented power state {power_state}")
+            self.power_state = MCUPowerState.READY
+        self._queue_response(self._get_status_data())
 
     def set_config_cmd(self, config):
         if self.power_state == MCUPowerState.SUSPENDED:
-            if config[3] == 0:
+            if config[2] == 0:
                 # the switch does this during initial setup, presumably to disable
                 # any MCU weirdness
                 pass
             else:
                 logger.warning("Set MCU Config not in READY mode")
         elif self.power_state == MCUPowerState.READY:
-            self.configuration = config
-            logger.info(f"MCU Set configuration{self.configuration}")
-            self.response[0:7] = bytes.fromhex("01000000030005")
-            # see https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp l 2359 for values
-            if config[2] == 4:
-                # configure into NFC
-                self.response[7] = 0x04
-                self.power_state = MCUPowerState.CONFIGURED_NFC
-            elif config[2] == 1:
-                # deconfigure / disable
-                self.response[7] = 0x01
-                self.power_state = MCUPowerState.READY
-            #elif config[2] == 5: IR-Camera
-            #elif config[2] == 6: FW-Update Maybe
+            if config[2] in SET_CONFIG_VALUES:
+                self.power_state = MCUPowerState(config[2])
+                self.configuration = config
+                logger.info(f"MCU Set configuration {self.power_state} {self.configuration}")
             else:
-                logger.error("Not implemented configuration written")
-                self.response[7] = 0x01
-        self.response[-1] = MCU_crc(self.response[0:-1])
+                self.power_state = MCUPowerState.READY
+                logger.error(f"Not implemented configuration written {config[2]} {config}")
+            if self.power_state == MCUPowerState.CONFIGURED_NFC:
+                self.nfc_state = NFC_state.NONE
+            self._queue_response(self._get_status_data())
 
-    def received_11(self, subcommand, subcommanddata):
-        if self.reading_cursor is not None:
-            return
-        self.response = [0] * 313
-        if subcommand == 0x01:
-            # status request, respond with string and Powerstate
-            self.response[0:7] = bytes.fromhex("01000000030005")
-            self.response[7] = 0x04 if self.power_state == MCUPowerState.CONFIGURED_NFC else 0x01
-        elif subcommand == 0x02:
-            # NFC command
-            if self.power_state != MCUPowerState.CONFIGURED_NFC:
-                logger.warning("NFC command outside NFC mode, ignoring")
-            elif subcommanddata[0] == 0x04:
-                # Start discovery
-                self.response[0:7] = bytes.fromhex("2a000500000931")
-            elif subcommanddata[0] == 0x01:
-                # Start polling
-                self.set_nfc_tag_data(self._controller.get_nfc())
-                if self.nfc_tag_data:
-                    # send the tag we found
-                    self.response[0:16] = bytes.fromhex("2a000500000931090000000101020007")
-                    self.response[16:19] = self.nfc_tag_data[0:3]
-                    self.response[19:23] = self.nfc_tag_data[4:8]
-                else:
-                    # send found nothing
-                    self.response[0:8] = bytes.fromhex("2a00050000093101")
-                    # we could report the tag immediately, but the switch doesn't like too much success
-                    # TODO: better way to delay tag detection
-                    logger.info("MCU: Looking for tag")
-            elif subcommanddata[0] == 0x06:
-                # start reading
-                if not self.reading_cursor:
-                    self.reading_cursor = 0
-            #elif subcommanddata[0] == 0x00: # cancel eveyhting -> exit mode?
-            elif subcommanddata[0] == 0x02:
-                # stop Polling
-                # AKA discovery again
-                self.response[0:7] = bytes.fromhex("2a000500000931")
-        self.response[-1] = MCU_crc(self.response[0:-1])
-
-    def get_data(self):
-        if self.reading_cursor is not None:
-            # reading seems to be just packets back to back, so we have to rewrite
-            # each when sending them
-            # TODO: Use a packet queue for this
-            self.response = [0] * 313
-            if self.reading_cursor == 0:
+    def handle_nfc_subcommand(self, com, data):
+        """
+        This generates responses for NFC commands and thus implements the entire
+        NFC-behaviour
+        @param com: the NFC-command (not the 0x02, the byte after that)
+        @param data: the remaining data
+        """
+        if com == 0x04:  # status / response request
+            self._queue_response(self._get_nfc_status_data(data))
+        elif com == 0x01:  # start polling, should we queue a nfc_status?
+            logger.info("MCU-NFC: start polling")
+            self.nfc_state = NFC_state.POLL
+        elif com == 0x06:  # read, we probably should not respond to this at all,
+            # since each packet is queried individually by the switch, but parsing these
+            # 04 packets is just annoying
+            logger.info("MCU-NFC: reading...")
+            if self.nfc_tag_data:
+                self._flush_response_queue()
                 # Data is sent in 2 packages plus a trailer
                 # the first one contains a lot of fixed header and the UUID
                 # the length and packetnumber is in there somewhere, see
                 # https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp line 2523ff
-                self.response[0:15] = bytes.fromhex("3a0007010001310200000001020007")
-                self.response[15:18] = self.nfc_tag_data[0:3]
-                self.response[18:22] = self.nfc_tag_data[4:8]
-                self.response[22:67] = bytes.fromhex(
+                out = [0] * 313
+                out[0:15] = bytes.fromhex("3a0007010001310200000001020007")
+                out[15:18] = self.nfc_tag_data[0:3]
+                out[18:22] = self.nfc_tag_data[4:8]
+                out[22:67] = bytes.fromhex(
                     "000000007DFDF0793651ABD7466E39C191BABEB856CEEDF1CE44CC75EAFB27094D087AE803003B3C7778860000")
-                self.response[67:-1] = self.nfc_tag_data[0:245]
-            elif self.reading_cursor == 1:
-                # the second one is mostely data, followed by presumably zeroes (zeroes work)
-                self.response[0:7] = bytes.fromhex("3a000702000927")
-                self.response[7:302] = self.nfc_tag_data[245:540]
-            elif self.reading_cursor == 2:
+                out[67:-1] = self.nfc_tag_data[0:245]
+                out[-1] = MCU_crc(out[0:-1])
+                self._force_queue_response(out)
+                # the second one is mostely data, followed by presumably anything (zeroes work)
+                out = [0] * 313
+                out[0:7] = bytes.fromhex("3a000702000927")
+                out[7:302] = self.nfc_tag_data[245:540]
+                out[-1] = MCU_crc(out[0:-1])
+                self._force_queue_response(out)
                 # the trailer includes the UUID again
-                self.response[0:16] = bytes.fromhex("2a000500000931040000000101020007")
-                self.response[16:19] = self.nfc_tag_data[0:3]
-                self.response[19:23] = self.nfc_tag_data[4:8]
-                self.nfc_tag_data = None
-                if self.remove_nfc_after_read:
-                    self._controller.set_nfc(None)
-            elif self.reading_cursor == 3:
-                # we are done but still need a graceful shutdown
-                # HACK: sending the SUSPENDED response seems to not crash it
-                # The next thing the switch requests sometimes is start discovery
-                self.reading_cursor = None
-                # self.nfc_tag_data = None
-                self.response[0] = 0xff
-                # if self.remove_nfc_after_read:
+                out = [0] * 313
+                out[0:16] = bytes.fromhex("2a000500000931040000000101020007")
+                out[16:19] = self.nfc_tag_data[0:3]
+                out[19:23] = self.nfc_tag_data[4:8]
+                out[-1] = MCU_crc(out[0:-1])
+                self._force_queue_response(out)
+                self.reading = 3
+                for msg in self.response_queue:
+                    print("MCU-NFC: reading, queued", msg)
+                #self.nfc_tag_data = None
+                #if self.remove_nfc_after_read:
                 #    self._controller.set_nfc(None)
-            if self.reading_cursor is not None:
-                self.reading_cursor += 1
-            self.response[-1] = MCU_crc(self.response[0:-1])
-        return self.response
+        # elif com == 0x00: # cancel eveyhting -> exit mode?
+        elif com == 0x02:  # stop polling, respond?
+            logger.info("MCU-NFC: stop polling...")
+            self.nfc_state = NFC_state.NONE
+        else:
+            logger.error("unhandled NFC subcommand", com, data)
 
+    def received_11(self, subcommand, subcommanddata):
+        """
+        This function handles all 0x11 output-reports.
+        @param subcommand: the subcommand as integer
+        @param subcommanddata: the remaining data
+        @return: None
+        """
+        if subcommand == 0x01:
+            # status request
+            self._queue_response(self._get_status_data(subcommanddata))
+        elif subcommand == 0x02:
+            # NFC command
+            if self.power_state != MCUPowerState.CONFIGURED_NFC:
+                logger.warning("NFC command outside NFC mode, ignoring", subcommand, subcommanddata)
+            else:
+                self.handle_nfc_subcommand(subcommanddata[0], subcommanddata[1:])
+        else:
+            logger.error("unknown 11 subcommand", subcommand, subcommanddata)
+
+    def get_data(self):
+        """
+        The function returning what is to write into mcu data of tha outgoing 0x31 packet
+
+        usually it is some queued response
+        @return: the data
+        """
+        if self.reading > 0:
+            print("sending", self.response_queue[0])
+            self.reading -= 1
+        if len(self.response_queue) > 0:
+            return self.response_queue.pop(0)
+        else:
+            return self.no_response

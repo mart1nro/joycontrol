@@ -15,17 +15,17 @@ from joycontrol.mcu import MarvelCinematicUniverse
 logger = logging.getLogger(__name__)
 
 
-def controller_protocol_factory(controller: Controller, spi_flash=None):
+def controller_protocol_factory(controller: Controller, spi_flash=None, reconnect = False):
     if isinstance(spi_flash, bytes):
         spi_flash = FlashMemory(spi_flash_memory_data=spi_flash)
 
     def create_controller_protocol():
-        return ControllerProtocol(controller, spi_flash=spi_flash)
+        return ControllerProtocol(controller, spi_flash=spi_flash, grip_menu = not reconnect)
 
     return create_controller_protocol
 
 class ControllerProtocol(BaseProtocol):
-    def __init__(self, controller: Controller, spi_flash: FlashMemory = None):
+    def __init__(self, controller: Controller, spi_flash: FlashMemory = None, grip_menu = False):
         self.controller = controller
         self.spi_flash = spi_flash
 
@@ -40,8 +40,8 @@ class ControllerProtocol(BaseProtocol):
         self._controller_state_sender = None
         self._writer = None
         # daley between two input reports
-        self.send_delay = 1/15
-
+        self.send_delay = 1/60 if not grip_menu else 1/15
+        
         self._mcu = MarvelCinematicUniverse(self._controller_state)
 
         # None = Send empty input reports & answer to sub commands

@@ -164,6 +164,7 @@ async def mash_button(controller_state, button, interval):
     await user_input
 
 
+
 def _register_commands_with_controller_state(controller_state, cli):
     """
     Commands registered here can use the given controller state.
@@ -194,6 +195,18 @@ def _register_commands_with_controller_state(controller_state, cli):
         await mash_button(controller_state, button, interval)
 
     cli.add_command(mash.__name__, mash)
+
+    async def click(*args):
+
+        if not args:
+            raise ValueError('"click" command requires a button!')
+
+        await controller_state.connect()
+        ensure_valid_button(controller_state, *args)
+
+        await button_push(controller_state, *args)
+
+    cli.add_command(click.__name__, click)
 
     # Hold a button command
     async def hold(*args):
@@ -281,7 +294,7 @@ async def _main(args):
 
     with utils.get_output(path=args.log, default=None) as capture_file:
         # prepare the the emulated controller
-        factory = controller_protocol_factory(controller, spi_flash=spi_flash)
+        factory = controller_protocol_factory(controller, spi_flash=spi_flash, reconnect = args.reconnect_bt_addr)
         ctl_psm, itr_psm = 17, 19
         transport, protocol = await create_hid_server(factory, reconnect_bt_addr=args.reconnect_bt_addr,
                                                       ctl_psm=ctl_psm,
