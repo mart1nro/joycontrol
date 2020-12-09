@@ -61,7 +61,7 @@ Here I describe what I found the nfc-reading process of amiibos looks like:
 
   This is spammed like hell and seems to be some other kind of nfc-status-request
 
-  `nfc_status`: `2a000500000931[nfc_state]`
+  `nfc_status`: `2a000500000931[nfc_state]00..00[checksum]`
 
   where nfc_state is
   - `00` for nothing/polling startup or something like this
@@ -88,7 +88,7 @@ Here I describe what I found the nfc-reading process of amiibos looks like:
 
   read1: `3a0007010001310200000001020007[TAG_UID]000000007DFDF0793651ABD7466E39C191BABEB856CEEDF1CE44CC75EAFB27094D087AE803003B3C7778860000[nfc_data(0;245(][checksum]`
 
-  read2: `3a000702000927[nfc data (245;540(][checksum]`
+  read2: `3a000702000927[nfc_data(245;540(][checksum]`
 
   read3: `2a000500000931040000000101020007[TAG_UID]00...00[checksum]`
 
@@ -101,3 +101,9 @@ Here I describe what I found the nfc-reading process of amiibos looks like:
 * cancel (`11 0200`)
 
   No idea
+
+# Resources
+
+* [jctool.cpp](https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp) c.a. line 2523
+
+* [bluetooth_hid_subcommands.md](https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_subcommands_notes.md)
