@@ -39,9 +39,9 @@ class ControllerProtocol(BaseProtocol):
         self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
         self._controller_state_sender = None
         self._writer = None
-        # daley between two input reports
+        # delay between two input reports
         self.send_delay = 1/60 if not grip_menu else 1/15
-        
+
         self._mcu = MarvelCinematicUniverse(self._controller_state)
 
         # None = Send empty input reports & answer to sub commands
@@ -192,7 +192,6 @@ class ControllerProtocol(BaseProtocol):
             # TODO Rumble
             pass
         elif output_report_id == OutputReportID.REQUEST_IR_NFC_MCU:
-            # TODO: support 0x11 outputs in OutputReport
             self._mcu.received_11(report.data[11], report.get_sub_command_data())
             pass
         else:
@@ -377,7 +376,6 @@ class ControllerProtocol(BaseProtocol):
         await self.write(input_report)
 
     async def _command_set_nfc_ir_mcu_state(self, sub_command_data):
-        # TODO NFC
         input_report = InputReport()
         input_report.set_input_report_id(0x21)
         input_report.set_misc()
