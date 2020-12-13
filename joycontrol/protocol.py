@@ -163,7 +163,7 @@ class ControllerProtocol(BaseProtocol):
                             reply_send = await self._reply_to_sub_command(report)
                         elif output_report_id == OutputReportID.REQUEST_IR_NFC_MCU:
                             # TODO NFC
-                            raise NotImplementedError('NFC communictation is not implemented.')                            
+                            raise NotImplementedError('NFC communication is not implemented.')
                         else:
                             logger.warning(f'Report unknown output report "{output_report_id}" - IGNORE')
                     except ValueError as v_err:
@@ -171,10 +171,8 @@ class ControllerProtocol(BaseProtocol):
                     except NotImplementedError as err:
                         logger.warning(err)
 
-                if reply_send:
-                    # Hack: Adding a delay here to avoid flooding during pairing
-                    await asyncio.sleep(0.3)
-                else:
+                # only send controller state when player light is set
+                if not reply_send and self.sig_set_player_lights.is_set():
                     # write 0x30 input report.
                     # TODO: set some sensor data
                     input_report.set_6axis_data()
