@@ -25,6 +25,51 @@ def controller_protocol_factory(controller: Controller, spi_flash=None):
     return create_controller_protocol
 
 
+class Signal:
+
+    def __init__(self):
+        self.subscribers = set()
+
+    def subscribe(self, subscriber):
+        self.subscribers.add(subscriber)
+
+    def unsubscribe(self, subscriber):
+        self.subscribers.remove(subscriber)
+
+    def dispatch(self, *args):
+        for subscriber in self.subscribers:
+            try:
+                result = subscriber(*args)
+                if asyncio.iscoroutine(result):
+                    asyncio.ensure_future(result)
+            except:
+                logger.exception('Error executing subscriber %s', subscriber)
+
+
+def freq(val):
+    return 2**(val / 32) * 10
+
+
+def amp(val):
+    # valid input range 0-200, but not exactly linear
+    return abs(val / 200)
+
+
+def rumble(data):
+    if data == [0x00] * 4:
+        return None
+
+    high_rumble_hf = data[0] + (data[1] << 8)
+    hf = (high_rumble_hf & 0x01ff) / 4  + 96
+    ha = (data[1] & 0xfe) / 2
+
+    lf = (data[2] & 0x7f) + 64
+    low_rumble_la = ((data[2] & 0x80) >> 7) + data[3]
+    la = (low_rumble_la - 64) * 2
+    return freq(hf), amp(ha), freq(lf), amp(la)
+
+
+
 class ControllerProtocol(BaseProtocol):
     def __init__(self, controller: Controller, spi_flash: FlashMemory = None):
         self.controller = controller
@@ -45,6 +90,29 @@ class ControllerProtocol(BaseProtocol):
 
         # This event gets triggered once the Switch assigns a player number to the controller and accepts user inputs
         self.sig_set_player_lights = asyncio.Event()
+
+        self.raw_rumble = Signal()
+        self.rumble = Signal()
+        self._rumble_data = None
+        self.raw_rumble.subscribe(self.summarize_rumble)
+
+
+    def summarize_rumble(self, left, right):
+        amp = ()
+        if left:
+            amp += (left[1], left[3])
+        if right:
+            amp += (right[1], right[3])
+        if any(amp):
+            if not self._rumble_data:
+                self._rumble_data = [time.time(), max(*amp)]
+            else:
+                self._rumble_data[1] = max(self._rumble_data[1], *amp)
+        else:
+            if self._rumble_data:
+                self.rumble.dispatch(time.time() - self._rumble_data[0], self._rumble_data[1])
+            self._rumble_data = None
+
 
     async def send_controller_state(self):
         """
@@ -157,13 +225,15 @@ class ControllerProtocol(BaseProtocol):
                         output_report_id = report.get_output_report_id()
 
                         if output_report_id == OutputReportID.RUMBLE_ONLY:
-                            # TODO
-                            pass
+                            data = report.get_rumble_data()
+                            self.raw_rumble.dispatch(rumble(data[:4]), rumble(data[4:]))
                         elif output_report_id == OutputReportID.SUB_COMMAND:
+                            data = report.get_rumble_data()
+                            self.raw_rumble.dispatch(rumble(data[:4]), rumble(data[4:]))
                             reply_send = await self._reply_to_sub_command(report)
                         elif output_report_id == OutputReportID.REQUEST_IR_NFC_MCU:
                             # TODO NFC
-                            raise NotImplementedError('NFC communictation is not implemented.')                            
+                            raise NotImplementedError('NFC communictation is not implemented.')
                         else:
                             logger.warning(f'Report unknown output report "{output_report_id}" - IGNORE')
                     except ValueError as v_err:
@@ -194,7 +264,6 @@ class ControllerProtocol(BaseProtocol):
                 if sleep_time < 0:
                     # logger.warning(f'Code is running {abs(sleep_time)} s too slow!')
                     sleep_time = 0
-
                 await asyncio.sleep(sleep_time)
 
         except NotConnectedError as err:
@@ -225,8 +294,6 @@ class ControllerProtocol(BaseProtocol):
 
         if output_report_id == OutputReportID.SUB_COMMAND:
             await self._reply_to_sub_command(report)
-        # elif output_report_id == OutputReportID.RUMBLE_ONLY:
-        #    pass
         else:
             logger.warning(f'Output report {output_report_id} not implemented - ignoring')
 
