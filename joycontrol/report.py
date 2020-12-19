@@ -156,7 +156,10 @@ class InputReport:
         self.data[offset + 3] = 0x02
         self.data[offset + 4: offset + 10] = mac
         self.data[offset + 10] = 0x01
-        self.data[offset + 11] = 0x01
+        if controller == Controller.PRO_CONTROLLER:
+            self.data[offset + 11] = 0x02
+        else:
+            self.data[offset + 11] = 0x01
 
     def sub_0x10_spi_flash_read(self, offset, size, data):
         if len(data) != size:
