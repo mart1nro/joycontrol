@@ -48,7 +48,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         itr_sock.setblocking(False)
         ctl_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         itr_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
+
         try:
             hid = HidDevice(device_id=device_id)
 
@@ -114,6 +114,14 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         client_itr.connect((reconnect_bt_addr, itr_psm))
         client_ctl.setblocking(False)
         client_itr.setblocking(False)
+
+    # The bluetooth adapter will send in the correct interval as the switch expects
+    # But the socket has a send buffer and blocks when the buffer is full.
+    # setting this low allows the write method to not block for a long time, as the buffer will
+    # be send fairly quick. Example:
+    # - default on my machine 212992: ~4 seconds
+    # - 4096: ~250ms
+    client_itr.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
 
     # create transport for the established connection and activate the HID protocol
     transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, client_ctl, 50, capture_file=capture_file)
