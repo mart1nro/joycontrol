@@ -14,6 +14,7 @@ from joycontrol.controller_state import ControllerState, button_push, button_pre
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
 from joycontrol.server import create_hid_server
+from joycontrol.transport import NotConnectedError
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,10 @@ def _register_commands_with_controller_state(controller_state, cli):
     cli.add_command(nfc.__name__, nfc)
 
 
+def print_rumble(duration, amp):
+    logger.info(f'Duration: {duration:.3f}s, Amplitude: {amp:.3f}')
+
+
 async def _main(args):
     # parse the spi flash
     if args.spi_flash:
@@ -287,6 +292,7 @@ async def _main(args):
                                                       device_id=args.device_id)
 
         controller_state = protocol.get_controller_state()
+        protocol.rumble.subscribe(print_rumble)
 
         # Create command line interface and add some extra commands
         cli = ControllerCLI(controller_state)
@@ -325,6 +331,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(
-        _main(args)
-    )
+    while True:
+        try:
+            loop.run_until_complete(
+                _main(args)
+            )
+        except NotConnectedError:
+            continue
+        break
