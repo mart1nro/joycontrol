@@ -10,7 +10,7 @@ from joycontrol.controller_state import ControllerState
 from joycontrol.memory import FlashMemory
 from joycontrol.report import OutputReport, SubCommand, InputReport, OutputReportID
 from joycontrol.transport import NotConnectedError
-from joycontrol.mcu import MarvelCinematicUniverse
+from joycontrol.mcu import MicroControllerUnit
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class ControllerProtocol(BaseProtocol):
         # delay between two input reports
         self.send_delay = 1/60 if not grip_menu else 1/15
 
-        self._mcu = MarvelCinematicUniverse(self._controller_state)
+        self._mcu = MicroControllerUnit(self._controller_state)
 
         # None = Send empty input reports & answer to sub commands
         self._input_report_mode = None
@@ -118,10 +118,6 @@ class ControllerProtocol(BaseProtocol):
     def connection_made(self, transport: BaseTransport) -> None:
         logger.debug('Connection established.')
         self.transport = transport
-        self._writer = asyncio.ensure_future(self.writer())
-        self._writer.add_done_callback(
-            utils.create_error_check_callback()
-        )
 
     def connection_lost(self, exc: Optional[Exception] = None) -> None:
         if self.transport is not None:
@@ -404,5 +400,8 @@ class ControllerProtocol(BaseProtocol):
         input_report.reply_to_subcommand_id(SubCommand.SET_PLAYER_LIGHTS.value)
 
         await self.write(input_report)
-
+        self._writer = asyncio.ensure_future(self.writer())
+        self._writer.add_done_callback(
+            utils.create_error_check_callback()
+        )
         self.sig_set_player_lights.set()

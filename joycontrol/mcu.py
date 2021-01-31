@@ -102,7 +102,7 @@ def pack_message(*args, background=0, checksum=MCU_crc):
     return data
 
 
-class MarvelCinematicUniverse:
+class MicroControllerUnit:
     def __init__(self, controller: ControllerState):
 
         self.power_state = MCUPowerState.SUSPENDED
