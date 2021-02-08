@@ -157,16 +157,11 @@ class MicroControllerUnit:
         self.remove_nfc_after_read = value
 
     # called somwhere in get_nfc_status with _controller.get_nfc()
-    def set_nfc_tag_data(self, data):
+    def set_nfc_tag(self, tag: NFCTag):
         logger.info("MCU-NFC: set NFC tag data")
-        if not data:
+        if not tag:
             self.nfc_tag = None
-        if not data is bytes:
-            data = bytes(data)
-        if len(data) != 540:
-            logger.warning("not implemented length")
-            return
-        self.nfc_tag = NFCTag(data)
+        self.nfc_tag = tag
 
     def _get_status_data(self, args=None):
         """
@@ -180,7 +175,7 @@ class MicroControllerUnit:
 
     def _get_nfc_status_data(self, args):
         if self.nfc_state == NFC_state.POLL and self._controller.get_nfc():
-            self.set_nfc_tag_data(self._controller.get_nfc())
+            self.set_nfc_tag(self._controller.get_nfc())
         if self.nfc_tag and self.nfc_state in (NFC_state.POLL, NFC_state.POLL_AGAIN, NFC_state.WRITING):
             out = pack_message("2a0005", self.seq_no, self.ack_seq_no, "0931", self.nfc_state, "0000000101020007",
                                self.nfc_tag.getUID())

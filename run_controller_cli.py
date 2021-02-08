@@ -14,6 +14,7 @@ from joycontrol.controller_state import ControllerState, button_push, button_pre
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
 from joycontrol.server import create_hid_server
+from joycontrol.nfc_tag import NFCTag
 
 logger = logging.getLogger(__name__)
 
@@ -270,11 +271,8 @@ def _register_commands_with_controller_state(controller_state, cli):
             controller_state.set_nfc(None)
             print('Removed nfc content.')
         else:
-            _loop = asyncio.get_event_loop()
-            with open(args[0], 'rb') as nfc_file:
-                content = await _loop.run_in_executor(None, nfc_file.read)
-                logger.info("CLI: Set nfc content")
-                controller_state.set_nfc(content)
+            controller_state.set_nfc(NFCTag.load_amiibo(args[0]))
+            print("added nfc content")
 
     cli.add_command(nfc.__name__, nfc)
 
