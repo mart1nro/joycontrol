@@ -2,14 +2,18 @@ import enum
 import logging
 import crc8
 import traceback
+import asyncio
 
 from joycontrol.controller_state import ControllerState
+from joycontrol.nfc_tag import NFCTag
 
 logger = logging.getLogger(__name__)
+
 
 def debug(args):
     print(args)
     return args
+
 
 ###############################################################
 ## This simulates the MCU in the right joycon/Pro-Controller ##
@@ -28,30 +32,31 @@ def debug(args):
 # But not all of them can appear in every one
 # see https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp l 2359 for set_config
 class MCUPowerState(enum.Enum):
-    SUSPENDED = 0x00 # set_power
-    READY = 0x01 # set_power, set_config, get_status
+    SUSPENDED = 0x00  # set_power
+    READY = 0x01  # set_power, set_config, get_status
     READY_UPDATE = 0x02
-    CONFIGURED_NFC = 0x04 # set_config, get_status
+    CONFIGURED_NFC = 0x04  # set_config, get_status
     # CONFIGURED_IR = 0x05  # TODO: support this
     # CONFIGUERED_UPDATE = 0x06
+
 
 SET_POWER_VALUES = (
     MCUPowerState.SUSPENDED.value,
     MCUPowerState.READY.value,
-#   MCUPowerState.READY_UPDATE.value,
+    #   MCUPowerState.READY_UPDATE.value,
 )
 
 SET_CONFIG_VALUES = (
     MCUPowerState.READY.value,
     MCUPowerState.CONFIGURED_NFC.value,
-#   MCUPowerState.CONFIGURED_IR.value,
+    #   MCUPowerState.CONFIGURED_IR.value,
 )
 
 GET_STATUS_VALUES = (
     MCUPowerState.READY.value,
-#   MCUPowerState.READY_UPDATE.value,
+    #   MCUPowerState.READY_UPDATE.value,
     MCUPowerState.CONFIGURED_NFC.value,
-#   MCUPowerState.CONFIGURED_IR.value
+    #   MCUPowerState.CONFIGURED_IR.value
 )
 
 
@@ -68,6 +73,7 @@ class NFC_state(enum.Enum):
     NONE = 0x00
     POLL = 0x01
     PENDING_READ = 0x02
+    WRITING = 0x03
     POLL_AGAIN = 0x09
 
 
@@ -95,7 +101,7 @@ def pack_message(*args, background=0, checksum=MCU_crc):
         arg_len = len(arg)
         if arg_len + cur > 313:
             logger.warn("MCU: too long message packed")
-        data[cur:cur+arg_len] = arg
+        data[cur:cur + arg_len] = arg
         cur += arg_len
     if checksum:
         data[-1] = checksum(data[0:-1])
@@ -112,7 +118,7 @@ class MicroControllerUnit:
         self.configuration = None
 
         # a cache to store the tag's data between Poll and Read
-        self.nfc_tag_data = None
+        self.nfc_tag: NFCTag = None
         self.nfc_state = NFC_state.NONE
 
         # NOT IMPLEMENTED
@@ -121,6 +127,11 @@ class MicroControllerUnit:
 
         # controllerstate to look for nfc-data
         self._controller = controller
+
+        self.seq_no = 0
+        self.ack_seq_no = 0
+        # self.expect_data = False
+        self.received_data = []
 
         # We are getting 0x11 commands to do something, but cannot answer directly
         # responses have to be passed in regular input reports
@@ -133,7 +144,7 @@ class MicroControllerUnit:
         self.response_queue = []
 
     def _queue_response(self, resp):
-        if resp == None: # the if "missing return statement" because python
+        if resp == None:  # the if "missing return statement" because python
             traceback.print_stack()
             exit(1)
         if len(self.response_queue) <= self.max_response_queue_len:
@@ -149,13 +160,13 @@ class MicroControllerUnit:
     def set_nfc_tag_data(self, data):
         logger.info("MCU-NFC: set NFC tag data")
         if not data:
-            self.nfc_tag_data = None
+            self.nfc_tag = None
         if not data is bytes:
             data = bytes(data)
         if len(data) != 540:
             logger.warning("not implemented length")
             return
-        self.nfc_tag_data = data
+        self.nfc_tag = NFCTag(data)
 
     def _get_status_data(self, args=None):
         """
@@ -170,14 +181,32 @@ class MicroControllerUnit:
     def _get_nfc_status_data(self, args):
         if self.nfc_state == NFC_state.POLL and self._controller.get_nfc():
             self.set_nfc_tag_data(self._controller.get_nfc())
-        if self.nfc_tag_data and self.nfc_state in (NFC_state.POLL, NFC_state.POLL_AGAIN):
-            out = pack_message("2a000500000931", self.nfc_state, "0000000101020007", self.nfc_tag_data[0:3], self.nfc_tag_data[4:8])
+        if self.nfc_tag and self.nfc_state in (NFC_state.POLL, NFC_state.POLL_AGAIN, NFC_state.WRITING):
+            out = pack_message("2a0005", self.seq_no, self.ack_seq_no, "0931", self.nfc_state, "0000000101020007",
+                               self.nfc_tag.getUID())
             self.nfc_state = NFC_state.POLL_AGAIN
         else:
             out = pack_message("2a000500000931", self.nfc_state)
         self._queue_response(out)
         self._queue_response(out)
         return out
+
+    async def process_nfc_write(self, command):
+        if not self.nfc_tag:
+            return
+        if command[1] != 0x07:  # panic wrong UUID length
+            return
+        if command[2:9] != self.nfc_tag.getUID():
+            return
+        self.nfc_tag.write(command[12] * 4, command[13:13 + 4])
+        i = 22
+        while i + 1 < len(command):
+            addr = command[i] * 4
+            len = command[i + 1]
+            data = command[i + 2:i + 2 + len]
+            self.nfc_tag.write(addr, len, data)
+            i += 2 + len
+        return
 
     def handle_nfc_subcommand(self, com, data):
         """
@@ -195,37 +224,51 @@ class MicroControllerUnit:
             # since each packet is queried individually by the switch, but parsing these
             # 04 packets is just annoying
             logger.info("MCU-NFC: reading Tag...")
-            if self.nfc_tag_data:
+            if self.nfc_tag:
                 self._flush_response_queue()
                 # Data is sent in 2 packages plus a trailer
                 # the first one contains a lot of fixed header and the UUID
                 # the length and packetnumber is in there somewhere, see
                 # https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp line 2523ff
                 self._force_queue_response(pack_message(
-                        "3a0007010001310200000001020007",
-                        self.nfc_tag_data[0:3],
-                        self.nfc_tag_data[4:8],
-                        "000000007DFDF0793651ABD7466E39C191BABEB856CEEDF1CE44CC75EAFB27094D087AE803003B3C7778860000",
-                        self.nfc_tag_data[0:245]
+                    "3a0007010001310200000001020007",
+                    self.nfc_tag.getUID(),
+                    "000000007DFDF0793651ABD7466E39C191BABEB856CEEDF1CE44CC75EAFB27094D087AE803003B3C7778860000",
+                    self.nfc_tag.data[0:245]
                 ))
                 # the second one is mostely data, followed by presumably anything (zeroes work)
                 self._force_queue_response(pack_message(
-                        "3a000702000927",
-                        self.nfc_tag_data[245:540]
+                    "3a000702000927",
+                    self.nfc_tag.data[245:540]
                 ))
                 # the trailer includes the UUID again
                 self._force_queue_response(pack_message(
-                        "2a000500000931040000000101020007",
-                        self.nfc_tag_data[0:3],
-                        self.nfc_tag_data[4:8]
+                    "2a000500000931040000000101020007",
+                    self.nfc_tag.getUID()
                 ))
-                #self.nfc_tag_data = None
-                #if self.remove_nfc_after_read:
+                # self.nfc_tag = None
+                # if self.remove_nfc_after_read:
                 #    self._controller.set_nfc(None)
         # elif com == 0x00: # cancel eveyhting -> exit mode?
         elif com == 0x02:  # stop polling, respond?
             logger.info("MCU-NFC: stop polling...")
             self.nfc_state = NFC_state.NONE
+        elif com == 0x08:  # write NTAG
+            if data[0] == 0 and data[2] == 0x08:  # never seen, single packet as entire payload
+                asyncio.ensure_future(self.process_nfc_write(data[4: 4 + data[3]]))
+                return
+            if data[0] == self.ack_seq_no:  # we already saw this one
+                pass
+            elif data[0] == 1 + self.ack_seq_no:  # next packet in sequence
+                self.received_data += data[4: 4 + data[3]]
+                self.ack_seq_no += 1
+            else:  # panic we missed/skipped something
+                self.ack_seq_no = 0
+            self.nfc_state = NFC_state.WRITING
+            self._force_queue_response(self._get_status_data(data))
+            if data[2] == 0x08:  # end of sequence
+                self.ack_seq_no = 0
+                asyncio.ensure_future(self.process_nfc_write(self.received_data))
         else:
             logger.error("unhandled NFC subcommand", com, data)
 
