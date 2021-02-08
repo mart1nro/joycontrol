@@ -132,3 +132,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+
+# binarys or dumps
+*.bin
