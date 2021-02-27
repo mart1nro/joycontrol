@@ -57,6 +57,9 @@ Call "help" to see a list of available commands.
   opening of the "Change Grip/Order" menu is not required.
 - ...
 
+## Thanks
+- Special thanks to https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering for reverse engineering of the joycon protocol
+- Thanks to the growing number of contributers and users
 
 ## Resources
 
