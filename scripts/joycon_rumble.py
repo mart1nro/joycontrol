@@ -50,21 +50,22 @@ async def send_vibration_report(hid_device):
     await hid_device.write(bytes(data))
     await asyncio.sleep(0.1)
 
+    octave = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25]
+    octave = [int(round(n)) for n in octave]
+
     time = 2
     while True:
-        for i in range(10):
-            rumble_report = OutputReport()
-            report.set_timer(time)
-            time += 1
-            rumble_report.set_output_report_id(OutputReportID.RUMBLE_ONLY)
-            # increase frequency
-            rumble_report.set_right_rumble_data(100 + i * 100, 1)
-            data = bytes(rumble_report)[1:]
-            print('writing', data)
-            await hid_device.write(bytes(data))
+        rumble_report = OutputReport()
+        report.set_timer(time)
+        time += 1
+        rumble_report.set_output_report_id(OutputReportID.RUMBLE_ONLY)
+        # increase frequency
+        rumble_report.set_right_rumble_data(octave[time % len(octave)], 1)
+        data = bytes(rumble_report)[1:]
+        print('writing', data)
+        await hid_device.write(bytes(data))
 
-            await asyncio.sleep(.5)
-        break
+        await asyncio.sleep(.2)
 
     try:
         await reader
@@ -88,6 +89,11 @@ if __name__ == '__main__':
     # check if root
     if not os.geteuid() == 0:
         raise PermissionError('Script must be run as root!')
+
+    # h = lambda bla: list(map(hex, bla))
+    # report = OutputReport()
+    # report.set_left_rumble_data(1253, 0.012)
+    # exit()
 
     # setup logging
     log.configure()
