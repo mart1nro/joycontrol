@@ -272,16 +272,29 @@ class OutputReport:
 
     @staticmethod
     def _encode_rumble_data(freq, amp):
-        if not 0 <= freq <= 1252:
-            raise ValueError('Frequency must be in [0, 1252].')
+        # TODO: Fix LA Byte 2
+
+        if not (40 <= freq <= 1253):
+            raise ValueError('Frequency must be in [40, 1253].')
+
+        if amp > 1.003:
+            raise ValueError('Amplitudes higher than 1.003 are not safe '
+                             'for the integrity of the linear resonant actuators')
 
         # Float frequency to hex conversion
         encoded_hex_freq = int(round(math.log2(freq / 10) * 32))
 
         # Convert to Joy-Con HF range. Range in big-endian: 0x0004-0x01FC with +0x0004 steps.
-        hf = (encoded_hex_freq - 0x60) * 4
+        if freq <= 80:
+            hf = 0x00
+        else:
+            hf = (encoded_hex_freq - 0x60) * 4
+
         # Convert to Joy-Con LF range. Range: 0x01-0x7F.
-        lf = encoded_hex_freq - 0x40
+        if freq >= 640:
+            lf = 0x00
+        else:
+            lf = encoded_hex_freq - 0x40
 
         # Float amplitude to hex conversion
         encoded_hex_amp = 0

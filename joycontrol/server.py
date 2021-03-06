@@ -76,10 +76,9 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
 
         hid.powered(True)
         hid.pairable(True)
-
-        # setting bluetooth adapter name and class to the device we wish to emulate
+        
+        # setting bluetooth adapter name to the device we wish to emulate
         await hid.set_name(protocol.controller.device_name())
-        await hid.set_class()
 
         logger.info('Advertising the Bluetooth SDP record...')
         try:
@@ -87,6 +86,9 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         except dbus.exceptions.DBusException as dbus_err:
             # Already registered (If multiple controllers are being emulated and this method is called consecutive times)
             logger.debug(dbus_err)
+
+        # set the device class to "Gamepad/joystick"
+        await hid.set_class()
 
         # start advertising
         hid.discoverable()
