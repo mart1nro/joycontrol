@@ -2,11 +2,9 @@ import asyncio
 import logging
 import os
 
-import hid
-
 from joycontrol import logging_default as log
+from joycontrol.hid import get_blt_hid_device, AsyncHID
 from joycontrol.report import InputReport, OutputReport, OutputReportID, SubCommand
-from joycontrol.utils import AsyncHID
 
 logger = logging.getLogger(__name__)
 
@@ -75,19 +73,11 @@ async def send_vibration_report(hid_device):
 
 
 async def _main(loop):
-    logger.info('Waiting for HID devices... Please connect one JoyCon (left OR right), or a Pro Controller over Bluetooth. '
+    logger.info('Waiting for HID devices... Please connect one JoyCon (left OR right), '
+                'or a Pro Controller over Bluetooth. '
                 'Note: The bluez "input" plugin needs to be enabled (default)')
 
-    controller = None
-    while controller is None:
-        for device in hid.enumerate(0, 0):
-            # looking for devices matching Nintendo's vendor id and JoyCon product id
-            if device['vendor_id'] == VENDOR_ID and device['product_id'] in (PRODUCT_ID_JL, PRODUCT_ID_JR, PRODUCT_ID_PC):
-                controller = device
-                break
-        else:
-            await asyncio.sleep(2)
-
+    controller = await get_blt_hid_device()
     logger.info(f'Found controller "{controller}".')
 
     with AsyncHID(path=controller['path'], loop=loop) as hid_controller:
