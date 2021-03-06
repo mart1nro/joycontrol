@@ -118,7 +118,7 @@ class ButtonState:
             self._available_buttons = {'y', 'x', 'b', 'a', 'sr', 'sl', 'r', 'zr',
                                        'plus', 'r_stick', 'home'}
         elif self.controller == Controller.JOYCON_L:
-            self._available_buttons = {'plus', 'l_stick', 'capture',
+            self._available_buttons = {'minus', 'l_stick', 'capture',
                                        'down', 'up', 'right', 'left', 'sr', 'sl', 'l', 'zl'}
 
         # byte 1
@@ -171,13 +171,13 @@ class ButtonState:
 
     def get_available_buttons(self):
         """
-        :returns set of valid buttons
+        :returns: set of valid buttons
         """
         return set(self._available_buttons)
 
     def __iter__(self):
         """
-        :returns iterator over the button bytes
+        :returns: iterator over the button bytes
         """
         yield self._byte_1
         yield self._byte_2
@@ -187,7 +187,12 @@ class ButtonState:
         self._byte_1 = self._byte_2 = self._byte_3 = 0
 
 
-async def button_push(controller_state, *buttons, sec=0.1):
+async def button_press(controller_state, *buttons):
+    """
+    Set given buttons in the controller state to the pressed down state and wait till send.
+    :param controller_state:
+    :param buttons: Buttons to press down (see ButtonState.get_available_buttons)
+    """
     if not buttons:
         raise ValueError('No Buttons were given.')
 
@@ -195,18 +200,41 @@ async def button_push(controller_state, *buttons, sec=0.1):
 
     for button in buttons:
         # push button
-        button_state.set_button(button)
+        button_state.set_button(button, pushed=True)
 
-    # send report
+    # wait until report is send
     await controller_state.send()
-    await asyncio.sleep(sec)
+
+
+async def button_release(controller_state, *buttons):
+    """
+    Set given buttons in the controller state to the unpressed state and wait till send.
+    :param controller_state:
+    :param buttons: Buttons to set to unpressed (see ButtonState.get_available_buttons)
+    """
+    if not buttons:
+        raise ValueError('No Buttons were given.')
+
+    button_state = controller_state.button_state
 
     for button in buttons:
         # release button
         button_state.set_button(button, pushed=False)
 
-    # send report
+    # wait until report is send
     await controller_state.send()
+
+
+async def button_push(controller_state, *buttons, sec=0.1):
+    """
+    Shortly push the given buttons. Wait until the controller state is send.
+    :param controller_state:
+    :param buttons: Buttons to push (see ButtonState.get_available_buttons)
+    :param sec: Seconds to wait before releasing the button, default: 0.1
+    """
+    await button_press(controller_state, *buttons)
+    await asyncio.sleep(sec)
+    await button_release(controller_state, *buttons)
 
 
 class _StickCalibration:

@@ -7,7 +7,7 @@ Tested on Ubuntu 19.10, and with Raspberry Pi 3B+ and 4B Raspbian GNU/Linux 10 (
 Emulation of JOYCON_R, JOYCON_L and PRO_CONTROLLER. Able to send:
 - button commands
 - stick state
-- nfc data
+- ~~nfc data~~ (removed, see [#80](https://github.com/mart1nro/joycontrol/issues/80))
 
 ## Installation
 - Install dependencies
@@ -24,7 +24,7 @@ Arch Linux Derivatives: Install the `hidapi` and `bluez-utils-compat`(AUR) packa
 ```bash
 sudo pip3 install .
 ```
-- Disable the bluez "input" plugin, see [#8](https://github.com/mart1nro/joycontrol/issues/8)
+- Consider to disable the bluez "input" plugin, see [#8](https://github.com/mart1nro/joycontrol/issues/8)
 
 ## Command line interface example
 - Run the script
@@ -57,6 +57,9 @@ Call "help" to see a list of available commands.
   opening of the "Change Grip/Order" menu is not required.
 - ...
 
+## Thanks
+- Special thanks to https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering for reverse engineering of the joycon protocol
+- Thanks to the growing number of contributers and users
 
 ## Resources
 
