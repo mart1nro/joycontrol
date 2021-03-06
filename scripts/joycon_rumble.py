@@ -8,15 +8,10 @@ from joycontrol.report import InputReport, OutputReport, OutputReportID, SubComm
 
 logger = logging.getLogger(__name__)
 
-VENDOR_ID = 1406
-PRODUCT_ID_JL = 8198
-PRODUCT_ID_JR = 8199
-PRODUCT_ID_PC = 8201
-
-
 """
 Sends some vibration reports to a joycon. Only works with the right joycon atm. 
 """
+
 
 async def print_outputs(hid_device):
     while True:
@@ -50,9 +45,10 @@ async def send_vibration_report(hid_device):
     await hid_device.write(bytes(data))
     await asyncio.sleep(0.1)
 
-    octave = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25]
-    octave = [int(round(n)) for n in octave]
+    scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25]
+    scale = [int(round(n)) for n in scale]
 
+    amp = 1
     time = 2
     while True:
         rumble_report = OutputReport()
@@ -60,7 +56,7 @@ async def send_vibration_report(hid_device):
         time += 1
         rumble_report.set_output_report_id(OutputReportID.RUMBLE_ONLY)
         # increase frequency
-        rumble_report.set_right_rumble_data(octave[time % len(octave)], 1)
+        rumble_report.set_right_rumble_data(scale[time % len(scale)], amp)
         data = bytes(rumble_report)[1:]
         print('writing', data)
         await hid_device.write(bytes(data))
@@ -87,7 +83,7 @@ async def _main(loop):
 
 if __name__ == '__main__':
     # check if root
-    if not os.geteuid() == 0:
+    if os.geteuid() != 0:
         raise PermissionError('Script must be run as root!')
 
     # h = lambda bla: list(map(hex, bla))
