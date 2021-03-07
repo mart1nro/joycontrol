@@ -1,3 +1,4 @@
+import math
 from enum import Enum
 
 from joycontrol.controller import Controller
@@ -295,6 +296,69 @@ class OutputReport:
 
     def get_rumble_data(self):
         return self.data[3:11]
+
+    @staticmethod
+    def _encode_rumble_data(freq, amp):
+        # TODO: Fix LA Byte 2
+
+        if not (40 <= freq <= 1253):
+            raise ValueError('Frequency must be in [40, 1253].')
+
+        if amp > 1.003:
+            raise ValueError('Amplitudes higher than 1.003 are not safe '
+                             'for the integrity of the linear resonant actuators')
+
+        # Float frequency to hex conversion
+        encoded_hex_freq = int(round(math.log2(freq / 10) * 32))
+
+        # Convert to Joy-Con HF range. Range in big-endian: 0x0004-0x01FC with +0x0004 steps.
+        if freq <= 80:
+            hf = 0x00
+        else:
+            hf = (encoded_hex_freq - 0x60) * 4
+
+        # Convert to Joy-Con LF range. Range: 0x01-0x7F.
+        if freq >= 640:
+            lf = 0x00
+        else:
+            lf = encoded_hex_freq - 0x40
+
+        # Float amplitude to hex conversion
+        encoded_hex_amp = 0
+        if amp > 0.23:
+            encoded_hex_amp = int(round(math.log2(amp * 8.7) * 32))
+        elif amp > 0.12:
+            encoded_hex_amp = int(round(math.log2(amp * 17) * 16))
+        else:
+            # TBD
+            pass
+
+        hf_amp = encoded_hex_amp << 1
+        lf_amp = (encoded_hex_amp >> 1) + 0x40
+
+        return hf, hf_amp, lf, lf_amp
+
+    def set_left_rumble_data(self, freq, amp):
+        hf, hf_amp, lf, lf_amp = OutputReport._encode_rumble_data(freq, amp)
+
+        # Byte swapping
+        self.data[3] = hf & 0xFF
+        self.data[4] = hf_amp + ((hf >> 8) & 0xFF)  # Add amp + 1st byte of frequency to amplitude byte
+
+        # Byte swapping
+        self.data[5] = lf + ((lf_amp >> 8) & 0xFF)  # Add freq + 1st byte of LF amplitude to the frequency byte
+        self.data[6] = lf_amp & 0xFF
+
+    def set_right_rumble_data(self, freq, amp):
+        hf, hf_amp, lf, lf_amp = OutputReport._encode_rumble_data(freq, amp)
+
+        # Byte swapping
+        self.data[7] = hf & 0xFF
+        self.data[8] = hf_amp + ((hf >> 8) & 0xFF)  # Add amp + 1st byte of frequency to amplitude byte
+
+        # Byte swapping
+        self.data[9] = lf + ((lf_amp >> 8) & 0xFF)  # Add freq + 1st byte of LF amplitude to the frequency byte
+        self.data[10] = lf_amp & 0xFF
 
     def get_sub_command(self):
         if len(self.data) < 12:
