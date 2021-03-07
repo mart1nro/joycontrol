@@ -373,7 +373,7 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_misc()
 
         input_report.set_ack(0x80)
-        input_report.reply_to_subcommand_id(0x03)
+        input_report.reply_to_subcommand_id(SubCommand.SET_INPUT_REPORT_MODE)
 
         await self.write(input_report)
 
