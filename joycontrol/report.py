@@ -112,6 +112,33 @@ class InputReport:
         for i in range(14, 50):
             self.data[i] = 0x00
 
+    def _parse_16_bit_le_triplet(self, offset):
+        """
+        :param offset: in the data list
+        :returns three int values each packed into two bytes in little endian
+        """
+        return (self.data[offset] << 8) + self.data[offset + 1], \
+               (self.data[offset + 2] << 8) + self.data[offset + 3], \
+               (self.data[offset + 4] << 8) + self.data[offset + 5]
+
+    def get_imu_data(self):
+        if not 0x30 <= self.get_input_report_id() <= 0x33:
+            raise ValueError('No IMU data!')
+
+        acc, gyro = [], []
+
+        offset = 14
+        for i in range(3):
+            x, y, z = self._parse_16_bit_le_triplet(offset)
+            acc.append((x, y, z))
+            offset += 6
+
+            roll, pitch, yaw = self._parse_16_bit_le_triplet(offset)
+            gyro.append((roll, pitch, yaw))
+            offset += 6
+
+        return acc, gyro
+
     def set_ir_nfc_data(self, data):
         if 50 + len(data) > len(self.data):
             raise ValueError('Too much data.')
