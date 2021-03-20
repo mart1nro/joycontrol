@@ -18,6 +18,9 @@ def debug(args):
 ###############################################################
 ## This simulates the MCU in the right joycon/Pro-Controller ##
 ###############################################################
+# WARNING: THIS IS ONE GIANT RACE CONDITION, DON'T DO THINGS FAST
+# No I won't fix this, I have had enough of this asyncio s***
+# DIY or STFU
 # This is sufficient to read one amiibo when simulation Pro-Controller
 # multiple can mess up the internal state
 # anything but amiboo is not supported
@@ -200,21 +203,32 @@ class MicroControllerUnit:
         return out
 
     async def process_nfc_write(self, command):
+        logger.info("processing write")
         if not self.nfc_tag:
+            logger.warning("FAAK self.nfc_tag is none, couldn't write")
             return
         if command[1] != 0x07:  # panic wrong UUID length
             return
-        if command[2:9] != self.nfc_tag.getUID():
-            return # wrong UUID, won't write to wrong UUID
-        self.nfc_tag = self.nfc_tag.get_mutable()
-        self.nfc_tag.write(command[12] * 4, command[13:13 + 4])
+        if command[1:8] != self.nfc_tag.getUID():
+            logger.warning("FAAK self.nfc_tag.uid isnt equal" +  bytes(self.nfc_tag.getUID()).hex() + bytes(command[1:8]).hex())
+            # return # wrong UUID, won't write to wrong UUID
+        self.nfc_tag.set_mutable(True)
+
+        # write write-lock
+        # self.nfc_tag.write(command[12] * 4, command[13:13 + 4])
+        # HACK: remove the write-lock
+        self.nfc_tag.data[16] = 0xa5
+        self.nfc_tag.data[17:19] = (int.from_bytes(self.nfc_tag.data[17:19], "big") + 1).to_bytes(2, 'big')
+        self.nfc_tag.data[19] = 0x00
         i = 22
         while i + 1 < len(command):
             addr = command[i] * 4
-            len = command[i + 1]
-            data = command[i + 2:i + 2 + len]
-            self.nfc_tag.write(addr, len, data)
-            i += 2 + len
+            leng = command[i + 1]
+            data = command[i + 2:i + 2 + leng]
+            self.nfc_tag.write(addr, data)
+            i += 2 + leng
+        logger.info("saving...")
+        self.nfc_tag.save()
         return
 
     def handle_nfc_subcommand(self, com, data):
@@ -274,17 +288,22 @@ class MicroControllerUnit:
         elif com == 0x08:  # write NTAG
             if data[0] == 0 and data[2] == 0x08:  # never seen, single packet as entire payload
                 asyncio.ensure_future(self.process_nfc_write(data[4: 4 + data[3]]))
+                logger.info("NFC write valid but WTF")
                 return
             if data[0] == self.ack_seq_no:  # we already saw this one
+                logger.info("NFC write packet repeat " + str(data[0]))
                 pass
             elif data[0] == 1 + self.ack_seq_no:  # next packet in sequence
                 self.received_data += data[4: 4 + data[3]]
                 self.ack_seq_no += 1
+                logger.info("NFC write packet " + str(self.ack_seq_no))
             else:  # panic we missed/skipped something
+                logger.warn("NFC write unexpected packet, expected " + str(self.ack_seq_no) + " got " + str(data[0]) + " " + str(data[2]))
                 self.ack_seq_no = 0
             self.nfc_state = NFC_state.WRITING
             self._force_queue_response(self._get_nfc_status_data(data))
             if data[2] == 0x08:  # end of sequence
+                logger.info("End of write, putting through")
                 self.ack_seq_no = 0
                 asyncio.ensure_future(self.process_nfc_write(self.received_data))
         else:

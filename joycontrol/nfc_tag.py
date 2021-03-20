@@ -3,17 +3,35 @@ from os import path as ph
 
 import logging
 
+
 logger = logging.getLogger(__name__)
 
 unnamed_saves = 0
-hint_path = "/tmp/{}_{}.bin"
-default_path = "/tmp/{}.bin"
 
-
-def get_savepath(hint=None):
-    global unnamed_saves, default_path
+def get_savepath(hint='/tmp/amiibo'):
+    global unnamed_saves
     unnamed_saves += 1
-    return hint_path.format(hint, unnamed_saves) if hint else default_path.format(unnamed_saves)
+    if hint.endswith('.bin'):
+        hint = hint[:-4]
+    while True:
+        path = hint + '_' + str(unnamed_saves) + '.bin'
+        if not ph.exists(path):
+            break
+        unnamed_saves += 1
+    return path
+
+
+unnamed_backups = 0
+
+def get_backuppath(hint='/tmp/amiibo.bin'):
+    global unnamed_backups
+    unnamed_backups += 1
+    while True:
+        path = hint + '.bak' + str(unnamed_backups)
+        if not ph.exists(path):
+            break
+        unnamed_backups += 1
+    return path
 
 
 class NFCTagType(enum.Enum):
@@ -30,18 +48,28 @@ class NFCTag:
             logger.warning("Illegal Amiibo tag size")
 
     @classmethod
-    def load_amiibo(cls, path):
+    def load_amiibo(cls, source):
         # if someone want to make this async have fun
-        with open(path, "rb") as reader:
-            return NFCTag(data=bytearray(reader.read(540)), tag_type=NFCTagType.AMIIBO, source=path)
+        with open(source, "rb") as reader:
+            return NFCTag(data=bytearray(reader.read(540)), tag_type=NFCTagType.AMIIBO, source=source)
+
+    def create_backup(self):
+        path = get_backuppath(self.source)
+        logger.info("creating amiibo backup at " + path)
+        with open(path, "wb") as writer:
+            writer.write(self.data)
+
+    def set_mutable(self, mutable=True):
+        if mutable > self.mutable:
+            self.create_backup()
+        self.mutable = mutable
 
     def save(self):
-        if self.mutable:
-            if not self.source:
-                self.source = get_savepath()
-                logger.info("Saved amiibo without source as " + self.source)
-            with open(self.source, "wb") as writer:
-                writer.write(self.data)
+        if not self.source:
+            self.source = get_savepath()
+        with open(self.source, "wb") as writer:
+            writer.write(self.data)
+            logger.info("Saved altered amiibo as " + self.source)
 
     def getUID(self):
         return self.data[0:3] + self.data[4:8]
@@ -50,12 +78,13 @@ class NFCTag:
         if self.mutable:
             return self
         else:
-            return NFCTag(self.data.copy(), self.tag_type, True, get_savepath(ph.splitext(ph.basename(self.source))[0]))
+            return NFCTag(self.data.copy(), self.tag_type, True, get_savepath(self.source))
 
     def write(self, idx, data):
         if not self.mutable:
             logger.warning("Ignored amiibo write to non-mutable amiibo")
-        self.data[idx:idx + len(data)] = data
+        else:
+            self.data[idx:idx + len(data)] = data
 
     def __del__(self):
         self.save()
