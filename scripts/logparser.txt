@@ -1,0 +1,10 @@
+
+Settings to be used with this fork of wireshark:
+https://gitlab.com/paulniklasweiss/wireshark/-/tree/regex_text_import
+to import the message log format into wireshark
+
+
+regex: $(?<dir>[<>]\s*(?<time>[\d\.:]+)\s+(?<data>[0-9a-fA-F]+)^
+in: <
+out: >
+timestamp: %H:%M:%S.%f
