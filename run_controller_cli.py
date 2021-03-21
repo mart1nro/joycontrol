@@ -266,7 +266,7 @@ def _register_commands_with_controller_state(controller_state, cli):
         if controller_state.get_controller() == Controller.JOYCON_L:
             raise ValueError('NFC content cannot be set for JOYCON_L')
         elif not args:
-            raise ValueError('"nfc" command requires file path to an nfc dump as argument!')
+            raise ValueError('"nfc" command requires file path to an nfc dump or "remove" as argument!')
         elif args[0] == 'remove':
             controller_state.set_nfc(None)
             print('Removed nfc content.')

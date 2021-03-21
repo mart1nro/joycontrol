@@ -44,7 +44,6 @@ class MCUPowerState(enum.Enum):
     # CONFIGURED_IR = 0x05  # TODO: support this
     # CONFIGUERED_UPDATE = 0x06
 
-
 SET_POWER_VALUES = (
     MCUPowerState.SUSPENDED.value,
     MCUPowerState.READY.value,
@@ -80,10 +79,11 @@ class NFC_state(enum.Enum):
     PENDING_READ = 0x02
     WRITING = 0x03
     AWAITING_WRITE = 0x04
+    PROCESSING_WRITE = 0x05
     POLL_AGAIN = 0x09
 
 
-def pack_message(*args, background=0, checksum=MCU_crc):
+def pack_message(*args, background=0, checksum=MCU_crc, length=313):
     """
     convinience function that packes
     * hex strings
@@ -93,7 +93,7 @@ def pack_message(*args, background=0, checksum=MCU_crc):
     * integers
     into a 313 bytes long MCU response
     """
-    data = bytearray([background] * 313)
+    data = bytearray([background] * length)
     cur = 0
     for arg in args:
         if isinstance(arg, str):
@@ -105,7 +105,7 @@ def pack_message(*args, background=0, checksum=MCU_crc):
         else:
             arg = bytes(arg)
         arg_len = len(arg)
-        if arg_len + cur > 313:
+        if arg_len + cur > length:
             logger.warning("MCU: too long message packed")
         data[cur:cur + arg_len] = arg
         cur += arg_len
@@ -126,6 +126,8 @@ class MicroControllerUnit:
         # a cache to store the tag's data between Poll and Read
         self.nfc_tag: NFCTag = None
         self.nfc_state = NFC_state.NONE
+        # Counter for testing state transitions
+        self.nfc_counter = 0
 
         # NOT IMPLEMENTED
         # remove the tag from the controller after a successfull read
@@ -156,7 +158,7 @@ class MicroControllerUnit:
         if len(self.response_queue) < self.max_response_queue_len:
             self.response_queue.append(resp)
         else:
-            logger.warning("Full queue, dropped packet")
+            logger.warning("Full queue, dropped outgoing MCU packet")
 
     # used to queue messages that cannot be dropped, as we don't have any kind of resend-mechanism
     def _force_queue_response(self, resp):
@@ -167,13 +169,12 @@ class MicroControllerUnit:
     def set_remove_nfc_after_read(self, value):
         self.remove_nfc_after_read = value
 
-    # called somwhere in get_nfc_status with _controller.get_nfc()
+    # called somewhere in get_nfc_status with _controller.get_nfc()
     def set_nfc_tag(self, tag: NFCTag):
-        logger.info("MCU-NFC: set NFC tag data")
-        if not isinstance(tag, NFCTag):
-            # I hope someone burns in hell for this bullshit...
-            logger.error("NOT A NFC TAG DUMBO")
-            exit(-1)
+        logger.debug(f"set nfc {tag}")
+        if tag and not isinstance(tag, NFCTag):
+            logger.error("not a NFCTag, ignoring")
+            return
         if not tag:
             self.nfc_tag = None
         self.nfc_tag = tag
@@ -197,38 +198,48 @@ class MicroControllerUnit:
         @return: the status-message
         """
         next_state = self.nfc_state
+        self.nfc_counter -= 1
+
+        if self.nfc_state == NFC_state.PROCESSING_WRITE and self.nfc_counter <= 0:
+            self.nfc_state = NFC_state.NONE
+
         if self.nfc_state == NFC_state.POLL and self._controller.get_nfc():
             self.set_nfc_tag(self._controller.get_nfc())
             next_state = NFC_state.POLL_AGAIN
-            logger.info("polled and found tag")
-        if self.nfc_tag and self.nfc_state in (NFC_state.POLL, NFC_state.POLL_AGAIN, NFC_state.AWAITING_WRITE, NFC_state.WRITING):
-            out = pack_message("2a0005", self.seq_no, self.ack_seq_no, "0931", self.nfc_state, "0000000101020007",
-                               self.nfc_tag.getUID())
-        else:
+            logger.debug("MCU: polled and found tag")
+
+        if self.nfc_tag and self.nfc_state != NFC_state.NONE:
+            # states POLL, POLL_AGAIN, AWAITING_WRITE, WRITING, PROCESSING_WRITE can include the UID
+            out = pack_message("2a0005", self.seq_no, self.ack_seq_no, "0931", self.nfc_state,
+                               "0000000101020007", self.nfc_tag.getUID())
+        else:  # seqno and ackseqno should be 0 if we're not doing anything fancy
             out = pack_message("2a000500000931", self.nfc_state)
         self.nfc_state = next_state
         return out
 
     async def process_nfc_write(self, command):
         """
-        After all data regarding the write to the tag has been received, this funcion acutally applies the changesd
+        After all data regarding the write to the tag has been received, this function actually applies the changed
         @param command: the entire write request
         @return: None
         """
-        logger.info("processing write")
+        logger.info("MCU: processing nfc write")
         if not self.nfc_tag:
             logger.error("self.nfc_tag is none, couldn't write")
             return
         if command[1] != 0x07:  # panic wrong UUID length
+            logger.error(f"UID length is {command[1]} (not 7), aborting")
             return
         if command[2:9] != self.nfc_tag.getUID():
-            logger.error("self.nfc_tag.uid and target uid isnt equal, are " + bytes(self.nfc_tag.getUID()).hex() +' and '+ bytes(command[1:8]).hex())
+            # I have no goddam clue why this check always fails.
+            logger.debug(f"nfc tag comp: {command[2:9]} {self.nfc_tag.getUID()}")
+            logger.error("self.nfc_tag.uid and target uid aren't equal, are " + bytes(self.nfc_tag.getUID()).hex() + ' and ' + bytes(command[2:9]).hex())
             # return # wrong UUID, won't write to wrong UUID
         self.nfc_tag.set_mutable(True)
 
         # write write-lock
         # self.nfc_tag.write(command[12] * 4, command[13:13 + 4])
-        # HACK: remove the write-lock
+        # Just remove the write-lock immediately, we have all the data already.
         self.nfc_tag.data[16] = 0xa5
         self.nfc_tag.data[17:19] = (int.from_bytes(self.nfc_tag.data[17:19], "big") + 1).to_bytes(2, 'big')
         self.nfc_tag.data[19] = 0x00
@@ -252,13 +263,12 @@ class MicroControllerUnit:
         if com == 0x04:  # status / response request
             self._force_queue_response(self._get_nfc_status_data(data))
         elif com == 0x01:  # start polling, should we queue a nfc_status?
-            logger.info("MCU-NFC: start polling")
+            logger.debug("MCU-NFC: start polling")
             self.nfc_state = NFC_state.POLL
-        elif com == 0x06:  # read
-            # IT FUCKING KNOWS THIS IS A ARGUMENT, JUST CRASHES FOR GOOD MEASURE
-            logger.info("MCU-NFCRead %s", data[6:13])
-            # this language gives no f*** about types, but a byte is no integer....
-            if all(map(lambda x, y: x == y, data[6:13], bytearray(7))):  # This is the UID, 0 seems to mean read anything
+        elif com == 0x06:  # read/write
+            logger.debug(f"MCU-NFC Read/write {data[6:13]}")
+            if all(map(lambda x: x == 0, data[6:13])):  # This is the UID, 0 means read anything
+
                 logger.info("MCU-NFC: reading Tag...")
                 if self.nfc_tag:
                     self._flush_response_queue()
@@ -284,37 +294,40 @@ class MicroControllerUnit:
                         "2a000500000931040000000101020007",
                         self.nfc_tag.getUID()
                     ))
-            else:  # the UID is nonzero, so I assume a read follows
-                print("writing", data[6:13])
+            # elif all(map(lambda x, y: x == y, data[6:13], self.nfc_tag.getUID())):  # we should check the UID
+            else:  # the UID is nonzero, so I a write to that tag follows
+                logger.info(f"MCU-NFC: setup writing tag {data[6:13]}")
                 self._force_queue_response(pack_message(
-                    "3a0007010008400200000001020007", self.nfc_tag.getUID(),  # standard header for write, some bytes differ
+                    "3a0007010008400200000001020007", self.nfc_tag.getUID(),  # standard header for write, some bytes differ from read
                     "00000000fdb0c0a434c9bf31690030aaef56444b0f602627366d5a281adc697fde0d6cbc010303000000000000f110ffee"
                     # any guesses are welcome. The end seems like something generic, a magic number?
                 ))
                 self.nfc_state = NFC_state.AWAITING_WRITE
         # elif com == 0x00: # cancel eveyhting -> exit mode?
         elif com == 0x02:  # stop polling, respond?
-            logger.info("MCU-NFC: stop polling...")
+            logger.debug("MCU-NFC: stop polling...")
             self.nfc_state = NFC_state.NONE
         elif com == 0x08:  # write NTAG
             if data[0] == 0 and data[2] == 0x08:  # never seen, single packet as entire payload
                 asyncio.ensure_future(self.process_nfc_write(data[4: 4 + data[3]]))
-                logger.info("NFC write valid but WTF")
+                logger.warning("MCU-NFC write valid but WTF")
                 return
-            if data[0] == self.ack_seq_no:  # we already saw this one
-                logger.info("NFC write packet repeat " + str(data[0]))
+            if data[0] <= self.ack_seq_no:  # we already saw this one
+                logger.info(f"MCU-NFC write packet repeat {data[0]}")
                 pass
             elif data[0] == 1 + self.ack_seq_no:  # next packet in sequence
                 self.received_data += data[4: 4 + data[3]]
                 self.ack_seq_no += 1
-                logger.info("NFC write packet " + str(self.ack_seq_no))
+                logger.debug(f"MCU-NFC write packet {self.ack_seq_no}")
             else:  # panic we missed/skipped something
-                logger.warning("NFC write unexpected packet, expected " + str(self.ack_seq_no) + " got " + str(data[0]) + " " + str(data[2]))
+                logger.warning(f"MCU-NFC write unexpected packet, expected {self.ack_seq_no} got {data[0]}, aborting.")
                 self.ack_seq_no = 0
             self.nfc_state = NFC_state.WRITING
             self._force_queue_response(self._get_nfc_status_data(data))
             if data[2] == 0x08:  # end of sequence
                 self.ack_seq_no = 0
+                self.nfc_state = NFC_state.PROCESSING_WRITE
+                self.nfc_counter = 4
                 asyncio.ensure_future(self.process_nfc_write(self.received_data))
         else:
             logger.error("unhandled NFC subcommand", com, data)
@@ -326,11 +339,12 @@ class MicroControllerUnit:
     # protocoll-callback
     def entered_31_input_mode(self):
         self._flush_response_queue()
-        self._queue_response(pack_message("0100000008001b01"))
+        self.power_state = MCUPowerState.READY
+        self._queue_response(self._get_status_data())
 
     # protocoll-callback
     def set_power_state_cmd(self, power_state):
-        logger.info(f"MCU: Set power state cmd {power_state}")
+        logger.debug(f"MCU: Set power state cmd {power_state}")
         self._flush_response_queue()
         if power_state in SET_POWER_VALUES:
             self.power_state = MCUPowerState(power_state)
@@ -352,12 +366,17 @@ class MicroControllerUnit:
             if config[2] in SET_CONFIG_VALUES:
                 self.power_state = MCUPowerState(config[2])
                 self.configuration = config
-                logger.info(f"MCU Set configuration {self.power_state} {self.configuration}")
+                logger.debug(f"MCU Set configuration {self.power_state} {self.configuration}")
             else:
                 self.power_state = MCUPowerState.READY
                 logger.error(f"Not implemented configuration written {config[2]} {config}")
             if self.power_state == MCUPowerState.CONFIGURED_NFC:
+                # reset all nfc-related parts
                 self.nfc_state = NFC_state.NONE
+                self.set_nfc_tag(None)
+                self.nfc_counter = 0
+                self.seq_no = 0
+                self.ack_seq_no = 0
             self._queue_response(self._get_status_data())
 
     # protocoll-callback
@@ -374,11 +393,11 @@ class MicroControllerUnit:
         elif subcommand == 0x02:
             # NFC command
             if self.power_state != MCUPowerState.CONFIGURED_NFC:
-                logger.warning("NFC command outside NFC mode, ignoring", subcommand, subcommanddata)
+                logger.warning(f"NFC command ({subcommand} {subcommanddata}) outside NFC mode, ignoring")
             else:
                 self.handle_nfc_subcommand(subcommanddata[0], subcommanddata[1:])
         else:
-            logger.error("unknown 11 subcommand", subcommand, subcommanddata)
+            logger.error(f"unknown 0x11 subcommand {subcommand} {subcommanddata}")
 
     # protocoll hook
     def get_data(self):

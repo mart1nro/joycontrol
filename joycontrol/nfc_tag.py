@@ -61,7 +61,7 @@ class NFCTag:
         copy the file backing this Tag
         """
         path = get_backuppath(self.source)
-        logger.info("creating amiibo backup at " + path)
+        logger.info(f"creating amiibo backup at {path}")
         with open(path, "wb") as writer:
             writer.write(self.data)
 
@@ -80,7 +80,7 @@ class NFCTag:
             self.source = get_savepath()
         with open(self.source, "wb") as writer:
             writer.write(self.data)
-            logger.info("Saved altered amiibo as " + self.source)
+            logger.info(f"Saved altered amiibo as {self.source}")
 
     def getUID(self):
         return self.data[0:3] + self.data[4:8]
