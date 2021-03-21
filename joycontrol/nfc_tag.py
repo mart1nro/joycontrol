@@ -39,6 +39,9 @@ class NFCTagType(enum.Enum):
 
 
 class NFCTag:
+    """
+    Class that represents a (Amiibo) NFC-Tag usually backed by a file. If needed files are generated.
+    """
     def __init__(self, data, tag_type: NFCTagType = NFCTagType.AMIIBO, mutable=False, source=None):
         self.data: bytearray = bytearray(data)
         self.tag_type: NFCTagType = tag_type
@@ -54,12 +57,20 @@ class NFCTag:
             return NFCTag(data=bytearray(reader.read(540)), tag_type=NFCTagType.AMIIBO, source=source)
 
     def create_backup(self):
+        """
+        copy the file backing this Tag
+        """
         path = get_backuppath(self.source)
         logger.info("creating amiibo backup at " + path)
         with open(path, "wb") as writer:
             writer.write(self.data)
 
     def set_mutable(self, mutable=True):
+        """
+        By default tags are marked immutable to prevent corruption. To make them mutable create a backup first.
+        @param mutable:
+        @return:
+        """
         if mutable > self.mutable:
             self.create_backup()
         self.mutable = mutable

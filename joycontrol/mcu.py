@@ -19,17 +19,19 @@ def debug(args):
 ## This simulates the MCU in the right joycon/Pro-Controller ##
 ###############################################################
 # WARNING: THIS IS ONE GIANT RACE CONDITION, DON'T DO THINGS FAST
-# No I won't fix this, I have had enough of this asyncio s***
+# No I won't fix this, I have had enough of this asyncio b***s***
 # DIY or STFU
-# This is sufficient to read one amiibo when simulation Pro-Controller
+# This is sufficient to read or write one amiibo when simulating
+# a Pro-Controller
 # multiple can mess up the internal state
 # anything but amiboo is not supported
 # TODO:
 #     - figure out the NFC-content transfer, currently everything is hardcoded to work wich amiibo
 #       see https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp l2456ff for sugesstions
 #     - IR-camera
-#     - writing to Amiibo
+#     - writing to Amiibo the proper way
 #     - verify right joycon
+#     - Figure out the UID index in write commands, currently the check is just uncommented...
 
 # These Values are used in set_power, set_config and get_status packets
 # But not all of them can appear in every one
@@ -104,7 +106,7 @@ def pack_message(*args, background=0, checksum=MCU_crc):
             arg = bytes(arg)
         arg_len = len(arg)
         if arg_len + cur > 313:
-            logger.warn("MCU: too long message packed")
+            logger.warning("MCU: too long message packed")
         data[cur:cur + arg_len] = arg
         cur += arg_len
     if checksum:
@@ -132,6 +134,7 @@ class MicroControllerUnit:
         # controllerstate to look for nfc-data
         self._controller = controller
 
+        # long messages are split, this keeps track of in and outgoing transfers
         self.seq_no = 0
         self.ack_seq_no = 0
         # self.expect_data = False
@@ -142,8 +145,7 @@ class MicroControllerUnit:
         # If there was no command, this is the default report
         self.no_response = pack_message(0xff)
         self.response_queue = []
-        # to prevent overfill of the queue drops packets, but some are integral.
-        self.response_queue_importance = []
+        # to prevent the queue from becoming too laggy, limit it's size
         # the length after which we start dropping packets
         self.max_response_queue_len = 4
 
@@ -151,14 +153,12 @@ class MicroControllerUnit:
         self.response_queue = []
 
     def _queue_response(self, resp):
-        if resp == None:  # the if "missing return statement" because python
-            traceback.print_stack()
-            exit(1)
         if len(self.response_queue) < self.max_response_queue_len:
             self.response_queue.append(resp)
         else:
             logger.warning("Full queue, dropped packet")
 
+    # used to queue messages that cannot be dropped, as we don't have any kind of resend-mechanism
     def _force_queue_response(self, resp):
         self.response_queue.append(resp)
         if len(self.response_queue) > self.max_response_queue_len:
@@ -172,7 +172,7 @@ class MicroControllerUnit:
         logger.info("MCU-NFC: set NFC tag data")
         if not isinstance(tag, NFCTag):
             # I hope someone burns in hell for this bullshit...
-            print("NOT A NFC TAG DUMBO")
+            logger.error("NOT A NFC TAG DUMBO")
             exit(-1)
         if not tag:
             self.nfc_tag = None
@@ -180,7 +180,7 @@ class MicroControllerUnit:
 
     def _get_status_data(self, args=None):
         """
-        create a status packet to be used when responding to 1101 commands
+        create a status packet to be used when responding to 1101 commands (outside NFC-mode)
         """
         if self.power_state == MCUPowerState.SUSPENDED:
             logger.warning("MCU: status request when disabled")
@@ -189,6 +189,13 @@ class MicroControllerUnit:
             return pack_message("0100000008001b", self.power_state)
 
     def _get_nfc_status_data(self, args):
+        """
+        Generate a NFC-Status report to be sent back to switch
+        This is 40% of all logic in this file, as all we do in NFC-mode is send these responses
+        but some (the read-tag ones) are hardcoded somewhere else
+        @param args: not used
+        @return: the status-message
+        """
         next_state = self.nfc_state
         if self.nfc_state == NFC_state.POLL and self._controller.get_nfc():
             self.set_nfc_tag(self._controller.get_nfc())
@@ -203,14 +210,19 @@ class MicroControllerUnit:
         return out
 
     async def process_nfc_write(self, command):
+        """
+        After all data regarding the write to the tag has been received, this funcion acutally applies the changesd
+        @param command: the entire write request
+        @return: None
+        """
         logger.info("processing write")
         if not self.nfc_tag:
-            logger.warning("FAAK self.nfc_tag is none, couldn't write")
+            logger.error("self.nfc_tag is none, couldn't write")
             return
         if command[1] != 0x07:  # panic wrong UUID length
             return
-        if command[1:8] != self.nfc_tag.getUID():
-            logger.warning("FAAK self.nfc_tag.uid isnt equal" +  bytes(self.nfc_tag.getUID()).hex() + bytes(command[1:8]).hex())
+        if command[2:9] != self.nfc_tag.getUID():
+            logger.error("self.nfc_tag.uid and target uid isnt equal, are " + bytes(self.nfc_tag.getUID()).hex() +' and '+ bytes(command[1:8]).hex())
             # return # wrong UUID, won't write to wrong UUID
         self.nfc_tag.set_mutable(True)
 
@@ -227,7 +239,6 @@ class MicroControllerUnit:
             data = command[i + 2:i + 2 + leng]
             self.nfc_tag.write(addr, data)
             i += 2 + leng
-        logger.info("saving...")
         self.nfc_tag.save()
         return
 
@@ -298,12 +309,11 @@ class MicroControllerUnit:
                 self.ack_seq_no += 1
                 logger.info("NFC write packet " + str(self.ack_seq_no))
             else:  # panic we missed/skipped something
-                logger.warn("NFC write unexpected packet, expected " + str(self.ack_seq_no) + " got " + str(data[0]) + " " + str(data[2]))
+                logger.warning("NFC write unexpected packet, expected " + str(self.ack_seq_no) + " got " + str(data[0]) + " " + str(data[2]))
                 self.ack_seq_no = 0
             self.nfc_state = NFC_state.WRITING
             self._force_queue_response(self._get_nfc_status_data(data))
             if data[2] == 0x08:  # end of sequence
-                logger.info("End of write, putting through")
                 self.ack_seq_no = 0
                 asyncio.ensure_future(self.process_nfc_write(self.received_data))
         else:
