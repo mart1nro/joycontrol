@@ -124,9 +124,17 @@ class MicroControllerUnit:
 
         self._last_poll_uid = None
 
-        # NOT IMPLEMENTED
-        # remove the tag from the controller after a successfull read
-        self.remove_nfc_after_read = False
+        # after writing we need to "remove" the amiibo
+        # sending the detection of a bunch of zeros works
+        # (pretty sure it just panics the switch)
+        self.remove_amiibo = NFCTag(data=bytes(540))
+        # weather or not the next n POLLs without a tag should assume the remove_amiibo
+        self._pending_active_remove = 0
+
+        # remove the tag from the controller after a successful read
+        # NOT IMPLEMENTED self.remove_nfc_after_read = False
+        # remove the tag from the controller after a successful write, the switch demands this
+        self.remove_nfc_after_write = True
 
         # controllerstate to look for nfc-data
         self._controller = controller
@@ -162,7 +170,8 @@ class MicroControllerUnit:
             logger.warning("Forced response queue")
 
     def set_remove_nfc_after_read(self, value):
-        self.remove_nfc_after_read = value
+        pass
+        # self.remove_nfc_after_read = value
 
     def _get_status_data(self, args=None):
         """
@@ -184,6 +193,11 @@ class MicroControllerUnit:
         """
         self.nfc_counter -= 1
         nfc_tag = self._controller.get_nfc()
+
+        # after a write to get out of the screen report the empty amiibo
+        if self.nfc_state in (NFC_state.POLL, NFC_state.POLL_AGAIN) and (self.remove_nfc_after_write or not nfc_tag) and self._pending_active_remove > 0:
+            nfc_tag = self.remove_amiibo
+            self._pending_active_remove -= 1
 
         if self.nfc_state == NFC_state.PROCESSING_WRITE and self.nfc_counter <= 0:
             self.nfc_state = NFC_state.NONE
@@ -220,7 +234,7 @@ class MicroControllerUnit:
         if command[1] != 0x07:  # panic wrong UUID length
             logger.error(f"UID length is {command[1]} (not 7), aborting")
             return
-        if command[2:9] != nfc_tag.getUID():
+        if bytes(command[2:9]) != nfc_tag.getUID():
             logger.error(f"self.nfc_tag.uid and target uid aren't equal, are {bytes(nfc_tag.getUID()).hex()} and {bytes(command[2:9]).hex()}")
             # return # wrong UUID, won't write to wrong UUID
         nfc_tag.set_mutable(True)
@@ -257,7 +271,8 @@ class MicroControllerUnit:
             logger.debug(f"MCU-NFC Read/write {data[6:13]}")
             nfc_tag = self._controller.get_nfc()
             if nfc_tag:
-                if data[6:13] == bytes(7):  # This is the UID, 0 means read anything
+                # python usually doesn't care about data-types but a list is not an array.... how I hate this crap
+                if bytes(data[6:13]) == bytes(7):  # This is the UID, 0 means read anything
                     logger.info("MCU-NFC: reading Tag...")
                     self._flush_response_queue()
                     # Data is sent in 2 packages plus a trailer
@@ -282,7 +297,7 @@ class MicroControllerUnit:
                         "2a000500000931040000000101020007",
                         nfc_tag.getUID()
                     ))
-                # elif data[6:13] == nfc_tag.getUID():  # we should check the UID
+                # elif bytes(data[6:13]) == nfc_tag.getUID():  # we should check the UID
                 else:  # the UID is nonzero, so I a write to that tag follows
                     logger.info(f"MCU-NFC: setup writing tag {data[6:13]}")
                     self._force_queue_response(pack_message(
@@ -319,6 +334,7 @@ class MicroControllerUnit:
                 self.ack_seq_no = 0
                 self.nfc_state = NFC_state.PROCESSING_WRITE
                 self.nfc_counter = 4
+                self._pending_active_remove = 4 # Dunno, anything > 2 works most likely
                 asyncio.ensure_future(self.process_nfc_write(self.received_data))
         else:
             logger.error("unhandled NFC subcommand", com, data)
