@@ -10,11 +10,6 @@ from joycontrol.nfc_tag import NFCTag
 logger = logging.getLogger(__name__)
 
 
-def debug(args):
-    print(args)
-    return args
-
-
 ###############################################################
 ## This simulates the MCU in the right joycon/Pro-Controller ##
 ###############################################################
@@ -123,11 +118,11 @@ class MicroControllerUnit:
         # Just a store for the remaining configuration data
         self.configuration = None
 
-        # a cache to store the tag's data between Poll and Read
-        self.nfc_tag: NFCTag = None
         self.nfc_state = NFC_state.NONE
         # Counter for testing state transitions
         self.nfc_counter = 0
+
+        self._last_poll_uid = None
 
         # NOT IMPLEMENTED
         # remove the tag from the controller after a successfull read
@@ -169,16 +164,6 @@ class MicroControllerUnit:
     def set_remove_nfc_after_read(self, value):
         self.remove_nfc_after_read = value
 
-    # called somewhere in get_nfc_status with _controller.get_nfc()
-    def set_nfc_tag(self, tag: NFCTag):
-        logger.debug(f"set nfc {tag}")
-        if tag and not isinstance(tag, NFCTag):
-            logger.error("not a NFCTag, ignoring")
-            return
-        if not tag:
-            self.nfc_tag = None
-        self.nfc_tag = tag
-
     def _get_status_data(self, args=None):
         """
         create a status packet to be used when responding to 1101 commands (outside NFC-mode)
@@ -193,28 +178,32 @@ class MicroControllerUnit:
         """
         Generate a NFC-Status report to be sent back to switch
         This is 40% of all logic in this file, as all we do in NFC-mode is send these responses
-        but some (the read-tag ones) are hardcoded somewhere else
+        but some (the read/write-tag ones) are hardcoded somewhere else
         @param args: not used
         @return: the status-message
         """
-        next_state = self.nfc_state
         self.nfc_counter -= 1
+        nfc_tag = self._controller.get_nfc()
 
         if self.nfc_state == NFC_state.PROCESSING_WRITE and self.nfc_counter <= 0:
             self.nfc_state = NFC_state.NONE
+        elif self.nfc_state == NFC_state.POLL:
+            if nfc_tag and nfc_tag.getUID() == self._last_poll_uid:
+                self.nfc_state = NFC_state.POLL_AGAIN
+            else:
+                self._last_poll_uid = nfc_tag.getUID() if nfc_tag else None
+        elif self.nfc_state == NFC_state.POLL_AGAIN:
+            if not nfc_tag or nfc_tag.getUID() != self._last_poll_uid:
+                self.nfc_state = NFC_state.POLL
+                self._last_poll_uid = nfc_tag.getUID() if nfc_tag else None
 
-        if self.nfc_state == NFC_state.POLL and self._controller.get_nfc():
-            self.set_nfc_tag(self._controller.get_nfc())
-            next_state = NFC_state.POLL_AGAIN
-            logger.debug("MCU: polled and found tag")
-
-        if self.nfc_tag and self.nfc_state != NFC_state.NONE:
+        if nfc_tag and self.nfc_state != NFC_state.NONE:
             # states POLL, POLL_AGAIN, AWAITING_WRITE, WRITING, PROCESSING_WRITE can include the UID
             out = pack_message("2a0005", self.seq_no, self.ack_seq_no, "0931", self.nfc_state,
-                               "0000000101020007", self.nfc_tag.getUID())
+                               "0000000101020007", nfc_tag.getUID())
         else:  # seqno and ackseqno should be 0 if we're not doing anything fancy
             out = pack_message("2a000500000931", self.nfc_state)
-        self.nfc_state = next_state
+
         return out
 
     async def process_nfc_write(self, command):
@@ -224,33 +213,32 @@ class MicroControllerUnit:
         @return: None
         """
         logger.info("MCU: processing nfc write")
-        if not self.nfc_tag:
-            logger.error("self.nfc_tag is none, couldn't write")
+        nfc_tag = self._controller.get_nfc()
+        if not nfc_tag:
+            logger.error("nfc_tag is none, couldn't write")
             return
         if command[1] != 0x07:  # panic wrong UUID length
             logger.error(f"UID length is {command[1]} (not 7), aborting")
             return
-        if command[2:9] != self.nfc_tag.getUID():
-            # I have no goddam clue why this check always fails.
-            logger.debug(f"nfc tag comp: {command[2:9]} {self.nfc_tag.getUID()}")
-            logger.error("self.nfc_tag.uid and target uid aren't equal, are " + bytes(self.nfc_tag.getUID()).hex() + ' and ' + bytes(command[2:9]).hex())
+        if command[2:9] != nfc_tag.getUID():
+            logger.error(f"self.nfc_tag.uid and target uid aren't equal, are {bytes(nfc_tag.getUID()).hex()} and {bytes(command[2:9]).hex()}")
             # return # wrong UUID, won't write to wrong UUID
-        self.nfc_tag.set_mutable(True)
+        nfc_tag.set_mutable(True)
 
         # write write-lock
-        # self.nfc_tag.write(command[12] * 4, command[13:13 + 4])
+        # nfc_tag.write(command[12] * 4, command[13:13 + 4])
         # Just remove the write-lock immediately, we have all the data already.
-        self.nfc_tag.data[16] = 0xa5
-        self.nfc_tag.data[17:19] = (int.from_bytes(self.nfc_tag.data[17:19], "big") + 1).to_bytes(2, 'big')
-        self.nfc_tag.data[19] = 0x00
+        nfc_tag.data[16] = 0xa5
+        nfc_tag.data[17:19] = (int.from_bytes(nfc_tag.data[17:19], "big") + 1).to_bytes(2, 'big')
+        nfc_tag.data[19] = 0x00
         i = 22
         while i + 1 < len(command):
             addr = command[i] * 4
             leng = command[i + 1]
             data = command[i + 2:i + 2 + leng]
-            self.nfc_tag.write(addr, data)
+            nfc_tag.write(addr, data)
             i += 2 + leng
-        self.nfc_tag.save()
+        nfc_tag.save()
         return
 
     def handle_nfc_subcommand(self, com, data):
@@ -267,10 +255,10 @@ class MicroControllerUnit:
             self.nfc_state = NFC_state.POLL
         elif com == 0x06:  # read/write
             logger.debug(f"MCU-NFC Read/write {data[6:13]}")
-            if all(map(lambda x: x == 0, data[6:13])):  # This is the UID, 0 means read anything
-
-                logger.info("MCU-NFC: reading Tag...")
-                if self.nfc_tag:
+            nfc_tag = self._controller.get_nfc()
+            if nfc_tag:
+                if data[6:13] == bytes(7):  # This is the UID, 0 means read anything
+                    logger.info("MCU-NFC: reading Tag...")
                     self._flush_response_queue()
                     # Data is sent in 2 packages plus a trailer
                     # the first one contains a lot of fixed header and the UUID
@@ -278,35 +266,38 @@ class MicroControllerUnit:
                     # https://github.com/CTCaer/jc_toolkit/blob/5.2.0/jctool/jctool.cpp line 2523ff
                     self._force_queue_response(pack_message(
                         "3a0007010001310200000001020007",
-                        self.nfc_tag.getUID(),
+                        nfc_tag.getUID(),
                         "000000007DFDF0793651ABD7466E39C191BABEB856CEEDF1CE44CC75EAFB27094D087AE803003B3C7778860000",
-                        self.nfc_tag.data[0:245]
+                        nfc_tag.data[0:245]
                     ))
                     # the second one is mostely data, followed by presumably anything (zeroes work)
                     self._force_queue_response(pack_message(
                         "3a000702000927",
-                        self.nfc_tag.data[245:540]
+                        nfc_tag.data[245:540]
                     ))
                     # the trailer includes the UUID again
                     # this is not actually the trailer, joycons send both packets again but with the first bytes in the
                     # first one 0x2a then this again. But it seems to work without?
                     self._force_queue_response(pack_message(
                         "2a000500000931040000000101020007",
-                        self.nfc_tag.getUID()
+                        nfc_tag.getUID()
                     ))
-            # elif all(map(lambda x, y: x == y, data[6:13], self.nfc_tag.getUID())):  # we should check the UID
-            else:  # the UID is nonzero, so I a write to that tag follows
-                logger.info(f"MCU-NFC: setup writing tag {data[6:13]}")
-                self._force_queue_response(pack_message(
-                    "3a0007010008400200000001020007", self.nfc_tag.getUID(),  # standard header for write, some bytes differ from read
-                    "00000000fdb0c0a434c9bf31690030aaef56444b0f602627366d5a281adc697fde0d6cbc010303000000000000f110ffee"
-                    # any guesses are welcome. The end seems like something generic, a magic number?
-                ))
-                self.nfc_state = NFC_state.AWAITING_WRITE
+                # elif data[6:13] == nfc_tag.getUID():  # we should check the UID
+                else:  # the UID is nonzero, so I a write to that tag follows
+                    logger.info(f"MCU-NFC: setup writing tag {data[6:13]}")
+                    self._force_queue_response(pack_message(
+                        "3a0007010008400200000001020007", nfc_tag.getUID(),  # standard header for write, some bytes differ from read
+                        "00000000fdb0c0a434c9bf31690030aaef56444b0f602627366d5a281adc697fde0d6cbc010303000000000000f110ffee"
+                        # any guesses are welcome. The end seems like something generic, a magic number?
+                    ))
+                    self.nfc_state = NFC_state.AWAITING_WRITE
+            else:
+                logger.error("had no NFC tag when read/write was initiated")
         # elif com == 0x00: # cancel eveyhting -> exit mode?
         elif com == 0x02:  # stop polling, respond?
             logger.debug("MCU-NFC: stop polling...")
             self.nfc_state = NFC_state.NONE
+            self._last_poll_uid = None
         elif com == 0x08:  # write NTAG
             if data[0] == 0 and data[2] == 0x08:  # never seen, single packet as entire payload
                 asyncio.ensure_future(self.process_nfc_write(data[4: 4 + data[3]]))
@@ -373,7 +364,6 @@ class MicroControllerUnit:
             if self.power_state == MCUPowerState.CONFIGURED_NFC:
                 # reset all nfc-related parts
                 self.nfc_state = NFC_state.NONE
-                self.set_nfc_tag(None)
                 self.nfc_counter = 0
                 self.seq_no = 0
                 self.ack_seq_no = 0
