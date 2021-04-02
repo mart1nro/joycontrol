@@ -85,16 +85,16 @@ class NFCTag:
     def getUID(self):
         return self.data[0:3] + self.data[4:8]
 
-    def get_mutable(self):
-        if self.mutable:
-            return self
-        else:
-            return NFCTag(self.data.copy(), self.tag_type, True, get_savepath(self.source))
+    def is_mutable(self):
+        return self.mutable
 
     def write(self, idx, data):
+        if idx > len(self.data) or idx+len(data) > len(self.data):
+            logger.error(f"I Fucking hate pyhton {idx}, {bytes(data).hex()} {len(data)}")
         if not self.mutable:
             logger.warning("Ignored amiibo write to non-mutable amiibo")
         else:
+
             self.data[idx:idx + len(data)] = data
 
     def __del__(self):

@@ -227,7 +227,7 @@ class MicroControllerUnit:
         @return: None
         """
         logger.info("MCU: processing nfc write")
-        nfc_tag = self._controller.get_nfc()
+        nfc_tag: NFCTag = self._controller.get_nfc()
         if not nfc_tag:
             logger.error("nfc_tag is none, couldn't write")
             return
@@ -237,7 +237,10 @@ class MicroControllerUnit:
         if bytes(command[2:9]) != nfc_tag.getUID():
             logger.error(f"self.nfc_tag.uid and target uid aren't equal, are {bytes(nfc_tag.getUID()).hex()} and {bytes(command[2:9]).hex()}")
             # return # wrong UUID, won't write to wrong UUID
-        nfc_tag.set_mutable(True)
+        if nfc_tag.is_mutable():
+            nfc_tag.create_backup()
+        else:
+            nfc_tag.set_mutable(True)
 
         # write write-lock
         # nfc_tag.write(command[12] * 4, command[13:13 + 4])
@@ -250,6 +253,8 @@ class MicroControllerUnit:
             addr = command[i] * 4
             leng = command[i + 1]
             data = command[i + 2:i + 2 + leng]
+            if addr == 0 or leng == 0:
+                break
             nfc_tag.write(addr, data)
             i += 2 + leng
         nfc_tag.save()
@@ -263,7 +268,8 @@ class MicroControllerUnit:
         @param data: the remaining data
         """
         if com == 0x04:  # status / response request
-            self._force_queue_response(self._get_nfc_status_data(data))
+            # the switch spams this up to 8 times a frame, there is no way to respond to all
+            self._queue_response(self._get_nfc_status_data(data))
         elif com == 0x01:  # start polling, should we queue a nfc_status?
             logger.debug("MCU-NFC: start polling")
             self.nfc_state = NFC_state.POLL
@@ -305,6 +311,7 @@ class MicroControllerUnit:
                         "00000000fdb0c0a434c9bf31690030aaef56444b0f602627366d5a281adc697fde0d6cbc010303000000000000f110ffee"
                         # any guesses are welcome. The end seems like something generic, a magic number?
                     ))
+                    self.received_data = []
                     self.nfc_state = NFC_state.AWAITING_WRITE
             else:
                 logger.error("had no NFC tag when read/write was initiated")
