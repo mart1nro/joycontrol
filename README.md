@@ -65,10 +65,10 @@ Call `help` to see a list of available commands.
 The following syntax is written in [EBNF](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form):
 
 ```ebnf
-command = special_command | button_command | stick_command | mash_command | hold_or_release_command | nfc_command ;
+command = ( special_command | button_command | stick_command | mash_command | hold_or_release_command | nfc_command ) , { " && " , command } ;
 
 special_command = "help" | "test_buttons" ;
-button_command = button , { " && " , button } ;
+button_command = button ;
 stick_command = "stick " , stick_side , " " , ( stick_direction | stick_finetune ) ;
 mash_command = "mash " , button , " " , interval ;
 hold_or_release_command = ( "hold " | "release " ) , button , { " " , button } ;
@@ -84,10 +84,9 @@ interval = number ;
 
 Some notes:
 
+- Commands can be "chained together" using `&&`. `cmd1 && cmd2` will send `cmd1` first and then `cmd2`.
 - `file_name` is a valid path to an existing file (e.g., `Amiibo.bin`, `/home/user/Desktop/Some\ file\ with\ spaces.bin`, or `../../Downloads/Not_bin.txt`).
 - `number` is any valid number written in decimal notation. That is, `3`, `0.5`, and `-3.14` are valid `number`s, while `0x0F` isn't.
-- Having multiple buttons in `button_command` (for example, `a && b`) will signal the Switch that both buttons are pressed *at the exact same time*.
-  `a && b` and `b && a` should yield the same behavior.
 - `stick_value` is an integer in the range `[0, 4096)`. That is, it is between `0` and `4095`.
   A stick's position is in the form `(h, v)`, where `h` represents its position in the horizontal axis, and `v` its position in the vertical axis.
   For example, `(0, 0)`, `(4095, 4095)`, and `(2048, 2048)` represent the stick at the extreme down-left, extreme up-right, and at rest.
