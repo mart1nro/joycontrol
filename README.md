@@ -67,7 +67,7 @@ The following syntax is written in [EBNF](https://en.wikipedia.org/wiki/Extended
 ```ebnf
 command = [ wp ] , ( special_command | button_command | stick_command | mash_command | hold_or_release_command | nfc_command ) , [ wp ] , { "&&" , command } ;
 
-special_command = "help" | "test_buttons" ;
+special_command = "help" | "test_buttons" | "exit" ;
 button_command = button ;
 stick_command = "stick" , wp , stick_side , wp , ( stick_direction | stick_finetune ) ;
 mash_command = "mash" , wp , button , wp , interval ;
