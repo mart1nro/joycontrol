@@ -68,7 +68,7 @@ The following syntax is written in [EBNF](https://en.wikipedia.org/wiki/Extended
 command = special_command | button_command | stick_command | mash_command | hold_or_release_command | nfc_command ;
 
 special_command = "help" | "test_buttons" ;
-button_command = button , [ " && " , button_command ] ;
+button_command = button , { " && " , button } ;
 stick_command = "stick " , stick_side , " " , ( stick_direction | stick_finetune ) ;
 mash_command = "mash " , button , " " , interval ;
 hold_or_release_command = ( "hold " | "release " ) , button , { " " , button } ;
