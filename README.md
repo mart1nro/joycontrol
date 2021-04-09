@@ -65,25 +65,27 @@ Call `help` to see a list of available commands.
 The following syntax is written in [EBNF](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form):
 
 ```ebnf
-command = ( special_command | button_command | stick_command | mash_command | hold_or_release_command | nfc_command ) , { " && " , command } ;
+command = [ wp ] , ( special_command | button_command | stick_command | mash_command | hold_or_release_command | nfc_command ) , [ wp ] , { "&&" , command } ;
 
 special_command = "help" | "test_buttons" ;
 button_command = button ;
-stick_command = "stick " , stick_side , " " , ( stick_direction | stick_finetune ) ;
-mash_command = "mash " , button , " " , interval ;
-hold_or_release_command = ( "hold " | "release " ) , button , { " " , button } ;
-nfc_command = "nfc " , ( file_name | "remove" ) ; (* No-op. See #80 *)
+stick_command = "stick" , wp , stick_side , wp , ( stick_direction | stick_finetune ) ;
+mash_command = "mash" , wp , button , wp , interval ;
+hold_or_release_command = ( "hold" | "release" ) , wp , button , { wp , button } ;
+nfc_command = "nfc" , wp , ( file_name | "remove" ) ; (* No-op. See #80 *)
 
 stick_side = "l" | "left" | "r" | "right" ; (* No difference between l and left, and r and right *)
 stick_direction = "center" | "up" | "down" | "left" | "right" ;
-stick_finetune = ( "h " | "v " ) , stick_value ;
+stick_finetune = ( "h" | "v" ) , wp , stick_value ;
 
 button = "a" | "b" | "x" | "y" | "up" | "down" | "left" | "right" | "l_stick" | "r_stick" | "l" | "r" | "zl" | "zr" | "minus" | "plus" | "home" | "capture" ;
 interval = number ;
+wp = wp_char , { wp_char }
 ```
 
 Some notes:
 
+- `wp_char` means "a space or a tab character" and `wp` means any sequence of these characters. Furthermore, `[ wp ]` means "optional whitespace".
 - Commands can be "chained together" using `&&`. `cmd1 && cmd2` will send `cmd1` first and then `cmd2`.
 - `file_name` is a valid path to an existing file (e.g., `Amiibo.bin`, `/home/user/Desktop/Some\ file\ with\ spaces.bin`, or `../../Downloads/Not_bin.txt`).
 - `number` is any valid number written in decimal notation. That is, `3`, `0.5`, and `-3.14` are valid `number`s, while `0x0F` isn't.
