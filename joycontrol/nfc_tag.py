@@ -47,14 +47,19 @@ class NFCTag:
         self.tag_type: NFCTagType = tag_type
         self.mutable: bool = mutable
         self.source: str = source
-        if self.tag_type == NFCTagType.AMIIBO and len(self.data) != 540:
-            logger.warning("Illegal Amiibo tag size")
+        if self.tag_type == NFCTagType.AMIIBO:
+            if len(self.data) == 540:
+                pass
+            elif len(self.data) == 572:
+                logger.info("Long amiibo loaded, manufacturer signature is ignored")
+            else:
+                logger.warning("Illegal Amiibo tag size")
 
     @classmethod
     def load_amiibo(cls, source):
         # if someone want to make this async have fun
         with open(source, "rb") as reader:
-            return NFCTag(data=bytearray(reader.read(540)), tag_type=NFCTagType.AMIIBO, source=source)
+            return NFCTag(data=bytearray(reader.read()), tag_type=NFCTagType.AMIIBO, source=source)
 
     def create_backup(self):
         """
