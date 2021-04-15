@@ -97,5 +97,3 @@ class NFCTag:
 
             self.data[idx:idx + len(data)] = data
 
-    def __del__(self):
-        self.save()

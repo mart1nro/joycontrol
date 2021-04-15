@@ -243,11 +243,8 @@ class MicroControllerUnit:
             nfc_tag.set_mutable(True)
 
         # write write-lock
-        # nfc_tag.write(command[12] * 4, command[13:13 + 4])
-        # Just remove the write-lock immediately, we have all the data already.
-        nfc_tag.data[16] = 0xa5
-        nfc_tag.data[17:19] = (int.from_bytes(nfc_tag.data[17:19], "big") + 1).to_bytes(2, 'big')
-        nfc_tag.data[19] = 0x00
+        nfc_tag.data[16:20] = command[13:17]
+
         i = 22
         while i + 1 < len(command):
             addr = command[i] * 4
@@ -257,6 +254,9 @@ class MicroControllerUnit:
                 break
             nfc_tag.write(addr, data)
             i += 2 + leng
+
+        # remove write lock
+        nfc_tag.data[16:20] = command[17:21]
         nfc_tag.save()
         return
 
