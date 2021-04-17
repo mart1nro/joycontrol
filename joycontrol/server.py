@@ -87,11 +87,11 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
             # Already registered (If multiple controllers are being emulated and this method is called consecutive times)
             logger.debug(dbus_err)
 
-        # set the device class to "Gamepad/joystick"
-        await hid.set_class()
-
         # start advertising
         hid.discoverable()
+
+        # set the device class to "Gamepad/joystick"
+        await hid.set_class()
 
         logger.info('Waiting for Switch to connect... Please open the "Change Grip/Order" menu.')
 
