@@ -1,3 +1,7 @@
+# because pyhton has no --include....
+import sys
+sys.path.insert(0, '..')
+
 import argparse
 import asyncio
 import logging
@@ -17,8 +21,10 @@ from joycontrol.utils import AsyncHID
 logger = logging.getLogger(__name__)
 
 async def myPipe(src, dest):
-    while data := await src():
+    data = await src()
+    while data:
         await dest(data)
+        data = await src()
 
 def read_from_sock(sock):
     async def internal():
@@ -48,6 +54,46 @@ async def connect_bt(bt_addr):
     itr.connect((bt_addr, 19))
     ctl.setblocking(0)
     itr.setblocking(0)
+    return ctl, itr
+
+async def accept_bt():
+    loop = asyncio.get_event_loop()
+
+    ctl_srv = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+    itr_srv = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+
+    print('Waitng for the Switch... Please open the "Change Grip/Order" menu.')
+
+    ctl_srv.setblocking(False)
+    itr_srv.setblocking(False)
+
+    ctl_srv.bind((socket.BDADDR_ANY, 17))
+    itr_srv.bind((socket.BDADDR_ANY, 19))
+
+    ctl_srv.listen(1)
+    itr_srv.listen(1)
+
+    emulated_hid = HidDevice()
+    # setting bluetooth adapter name and class to the device we wish to emulate
+    await emulated_hid.set_name('Joy-Con (R)')
+    logger.info('Advertising the Bluetooth SDP record...')
+    emulated_hid.register_sdp_record(PROFILE_PATH)
+    #emulated_hid.powered(True)
+    emulated_hid.discoverable(True)
+    #emulated_hid.pairable(True)
+    await emulated_hid.set_class()
+
+    ctl, ctl_address = await loop.sock_accept(ctl_srv)
+    print(f'Accepted connection at psm 17 from {ctl_address}')
+    itr, itr_address = await loop.sock_accept(itr_srv)
+    print(f'Accepted connection at psm 19 from {itr_address}')
+    assert ctl_address[0] == itr_address[0]
+
+    # stop advertising
+    emulated_hid.discoverable(False)
+    ctl_srv.close()
+    itr_srv.close()
+
     return ctl, itr
 
 def bt_to_callbacks(ctl, itr):
@@ -91,6 +137,8 @@ async def _main(sw_addr, jc_addr):
     jc_eth = not re.match("([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", jc_addr)
     sw_eth = not re.match("([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", sw_addr)
 
+    sw_any = sw_addr == "00:00:00:00:00:00"
+
     print("jc_eth", jc_eth, "sw_eth", sw_eth)
 
     send_to_jc = None
@@ -121,9 +169,11 @@ async def _main(sw_addr, jc_addr):
             #print("got initial")
 
         if not sw_eth:
-            print("waiting for switch")
-            recv_from_switch, send_to_switch, cleanup_switch = bt_to_callbacks(*await connect_bt(sw_addr))
-
+            if not sw_any:
+                print("waiting for switch")
+                recv_from_switch, send_to_switch, cleanup_switch = bt_to_callbacks(*await connect_bt(sw_addr))
+            else:
+                recv_from_switch, send_to_switch, cleanup_switch = bt_to_callbacks(*await accept_bt())
 
         print("stared forwarding")
         await asyncio.gather(
@@ -145,7 +195,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Acts as proxy for Switch-joycon communtcation between the two given addresses.\n Start the instance forwarding to the Switch directly first")
     parser.add_argument('-S', '--switch', type=str, default=None,
-                        help='talk to switch at the given address. Either a BT-MAC or a tcp ip:port combo.')
+                        help='talk to switch at the given address. Either a BT-MAC or a tcp ip:port combo. 00:00:00:00:00:00 for pair mode.')
     parser.add_argument('-J', '--joycon', type=str, default=None,
                         help='talk to switch at the given address. Either a BT-MAC or a tcp ip:port combo.')
 
