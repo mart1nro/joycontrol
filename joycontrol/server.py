@@ -48,7 +48,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         itr_sock.setblocking(False)
         ctl_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         itr_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
+
         try:
             hid = HidDevice(device_id=device_id)
 
@@ -76,7 +76,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
 
         hid.powered(True)
         hid.pairable(True)
-        
+
         # setting bluetooth adapter name to the device we wish to emulate
         await hid.set_name(protocol.controller.device_name())
 

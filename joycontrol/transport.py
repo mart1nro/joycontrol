@@ -2,6 +2,7 @@ import asyncio
 import logging
 import struct
 import time
+import socket
 from typing import Any
 
 from joycontrol import utils
@@ -14,7 +15,7 @@ class NotConnectedError(ConnectionResetError):
 
 
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None) -> None:
+    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = 20) -> None:
         super(L2CAP_Transport, self).__init__()
 
         self._loop = loop
@@ -24,6 +25,9 @@ class L2CAP_Transport(asyncio.Transport):
         self._ctr_sock = ctr_sock
 
         self._read_buffer_size = read_buffer_size
+        self._flow_control = flow_control
+        if flow_control:
+            self._pending_packets = asyncio.Semaphore(flow_control)
 
         self._extra_info = {
             'peername': self._itr_sock.getpeername(),
@@ -40,6 +44,21 @@ class L2CAP_Transport(asyncio.Transport):
         self._read_thread = None
         self._is_reading.set()
         self.start_reader()
+        if flow_control:
+            asyncio.ensure_future(self._hci_mon())
+
+    async def _hci_mon(self):
+        hci = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
+        hci.bind((0,))
+        # 0x10 = 1 << 4 = HCI_EVT
+        hci.setblocking(False)
+        hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 0x10, 1 << 0x13, 0, 0))
+        #hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, pack("IIIh2x", 0x10, 0xFFFFFFFF, 0, 0))
+
+        while True:
+            await self._loop.sock_recv(hci, 300)
+            self._pending_packets.release()
+            self._pending_packets.release()
 
     async def _reader(self):
         while True:
@@ -126,6 +145,8 @@ class L2CAP_Transport(asyncio.Transport):
         # logger.debug(f'sending "{_bytes}"')
 
         try:
+            if self._flow_control:
+                await self._pending_packets.acquire()
             await self._loop.sock_sendall(self._itr_sock, _bytes)
         except OSError as err:
             logger.error(err)
