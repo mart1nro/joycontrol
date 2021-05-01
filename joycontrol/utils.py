@@ -80,6 +80,13 @@ async def run_system_command(cmd):
 
     return proc.returncode, stdout, stderr
 
+def start_asyncio_thread(func, ignore=None):
+    out = asyncio.ensure_future(func)
+    out.add_done_callback(
+        utils.create_error_check_callback(ignore=ignore)
+    )
+    return out
+
 """
 async def get_bt_mac_address(dev=0):
     ret, stdout, stderr = await run_system_command(f'hciconfig hci{dev}')

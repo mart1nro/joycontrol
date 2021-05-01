@@ -69,7 +69,7 @@ class ControllerState:
         """
         Waits until the switch is paired with the controller and accepts button commands
         """
-        await self._protocol.sig_set_player_lights.wait()
+        await self._protocol.sig_input_ready.wait()
 
 
 class ButtonState:

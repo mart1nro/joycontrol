@@ -3,6 +3,7 @@ import logging
 import time
 from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
+import math
 
 from joycontrol import utils
 from joycontrol.controller import Controller
@@ -20,57 +21,64 @@ def controller_protocol_factory(controller: Controller, spi_flash=None, reconnec
         spi_flash = FlashMemory(spi_flash_memory_data=spi_flash)
 
     def create_controller_protocol():
-        return ControllerProtocol(controller, spi_flash=spi_flash, grip_menu = not reconnect)
+        return ControllerProtocol(controller, spi_flash=spi_flash, reconnect = reconnect)
 
     return create_controller_protocol
 
 class ControllerProtocol(BaseProtocol):
-    def __init__(self, controller: Controller, spi_flash: FlashMemory = None, grip_menu = False):
+    def __init__(self, controller: Controller, spi_flash: FlashMemory = None, reconnect = False):
         self.controller = controller
         self.spi_flash = spi_flash
 
         self.transport = None
 
         # Increases for each input report send, should overflow at 0x100
-        self._input_report_timer = 0x00
-
-        self._data_received = asyncio.Event()
+        self._input_report_timer_start = None
+        self._input_report_wakeup = asyncio.Event()
 
         self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
         self._controller_state_sender = None
-        self._writer = None
+        self._writer_thread = None
         # delay between two input reports
-        self.send_delay = 1/60 if not grip_menu else 1/15
+        self.send_delay = 1/60 if reconnect else 1/15
 
         self._mcu = MicroControllerUnit(self._controller_state)
 
         # None = Send empty input reports & answer to sub commands
+        self._set_mode(None, )
         self._input_report_mode = None
 
-        # This event gets triggered once the Switch assigns a player number to the controller and accepts user inputs
-        self.sig_set_player_lights = asyncio.Event()
+        self.sig_input_ready = asyncio.Event()
+        self.sig_data_received = asyncio.Event()
 
-    async def send_controller_state(self):
+# INTERNAL
+
+    def _set_mode(self, mode, delay=None):
+
+        delay_map = {
+            None: math.inf,
+            0x3F: 1.0,
+            0x21: math.inf,
+            0x30: 1/15,
+            0x31: 1/60
+        }
+        self._input_report_mode = mode
+        if not delay:
+            delay = delay_map[mode]
+
+        if mode in delay_map:
+            self.send_delay = delay_map[mode]
+        else:
+            logger.warning(f"Unknown delay for mode {mode}, assuming 1/15")
+
+        if mode in [0x30, 0x31, 0x32, 0x33]:
+            self.sig_input_ready.set()
+
+        #asyncio.ensure_future(self.hci_scanner())
+        self._input_report_wakeup.set()
+
+    async def _write(self, input_report):
         """
-        Waits for the controller state to be send.
-
-        Raises NotConnected exception if the transport is not connected or the connection was lost.
-        """
-        # TODO: Call write directly if in continuously sending input report mode
-
-        if self.transport is None:
-            raise NotConnectedError('Transport not registered.')
-
-        self._controller_state.sig_is_send.clear()
-
-        # wrap into a future to be able to set an exception in case of a disconnect
-        self._controller_state_sender = asyncio.ensure_future(self._controller_state.sig_is_send.wait())
-        await self._controller_state_sender
-        self._controller_state_sender = None
-
-    async def write(self, input_report: InputReport):
-        """
-        Sets timer byte and current button state in the input report and sends it.
         Fires sig_is_send event in the controller state afterwards.
 
         Raises NotConnected exception if the transport is not connected or the connection was lost.
@@ -78,46 +86,138 @@ class ControllerProtocol(BaseProtocol):
         if self.transport is None:
             raise NotConnectedError('Transport not registered.')
 
-        # set button and stick data of input report
-        input_report.set_button_status(self._controller_state.button_state)
-        if self._controller_state.l_stick_state is None:
-            l_stick = [0x00, 0x00, 0x00]
-        else:
-            l_stick = self._controller_state.l_stick_state
-        if self._controller_state.r_stick_state is None:
-            r_stick = [0x00, 0x00, 0x00]
-        else:
-            r_stick = self._controller_state.r_stick_state
-        input_report.set_stick_status(l_stick, r_stick)
-
-        # set timer byte of input report
-        input_report.set_timer(self._input_report_timer)
-        self._input_report_timer = (self._input_report_timer + 1) % 0x100
-
-        # this would close the grip menu, so go into fullspeed
-        if self.send_delay >= 1/15 and (self._controller_state.button_state.a_is_set()
-                or self._controller_state.button_state.b_is_set()
-                or self._controller_state.button_state.home_is_set()):
-            logger.info("Leaving grip menu")
-            self.send_delay = 1 / 60
-
         await self.transport.write(input_report)
 
         self._controller_state.sig_is_send.set()
 
-    def get_controller_state(self) -> ControllerState:
-        return self._controller_state
+    def _generate_input_report(self, mode=None):
+        input_report = InputReport()
+        if not mode:
+            mode = self._input_report_mode
 
-    async def wait_for_output_report(self):
+        if not mode:
+            raise ValueError("cannot generate Report without Mode")
+
+        input_report.set_input_report_id(mode)
+        if mode == 0x3F:
+            input_report.data[1:3] = [0x28, 0xca, 0x08]
+            input_report.data[4:11] = [0x40,0x8A, 0x4F, 0x8A, 0xD0, 0x7E, 0xDF, 0x7F]
+        else:
+            if self._input_report_timer_start:
+                input_report.set_timer(round((time.time() - self._input_report_timer_start) / 0.005) % 0x100)
+            else:
+                input_report.set_timer(0)
+            input_report.set_misc()
+            input_report.set_button_status(self._controller_state.button_state)
+            input_report.set_stick_status(self._controller_state.l_stick_state, self._controller_state.r_stick_state)
+            input_report.set_vibrator_input()
+            if mode == 0x21:
+                pass # subcommand is set outside
+            elif mode in [0x30, 0x31, 0x32, 0x33]:
+                input_report.set_6axis_data()
+
+            if mode == 0x31:
+                input_report.set_ir_nfc_data(self._mcu.get_data())
+        return input_report
+
+    async def _writer(self):
         """
-        Waits until an output report from the Switch is received.
+        This continuously sends input reports to the switch.
+        This relies on the asyncio scheduler to sneak the additional
+        subcommand-replies in
         """
-        self._data_received.clear()
-        await self._data_received.wait()
+        logger.info("writer started")
+        while self.transport:
+            last_send_time = time.time()
+            input_report = self._generate_input_report()
+            try:
+                await self._write(input_report)
+            except:
+                break
+            # calculate delay
+            active_time = time.time() - last_send_time
+            sleep_time = self.send_delay - active_time
+            # last_send_time = current_time
+            if sleep_time < 0:
+                logger.warning(f'Code is running {abs(sleep_time)} s too slow!')
+                sleep_time = 0
+
+            try:
+                await asyncio.wait_for(self._input_report_wakeup.wait(), timeout=sleep_time)
+                self._input_report_wakeup.clear()
+            except asyncio.TimeoutError as err:
+                pass
+
+        logger.warning("Writer exited...")
+        return None
+
+    async def _reply_to_sub_command(self, report):
+        # classify sub command
+        try:
+            sub_command = report.get_sub_command()
+        except NotImplementedError as err:
+            logger.warning(err)
+            return False
+
+        if sub_command is None:
+            raise ValueError('Received output report does not contain a sub command')
+
+        logging.info(f'received Sub command {sub_command}')
+
+        sub_command_data = report.get_sub_command_data()
+        assert sub_command_data is not None
+
+        response_report = self._generate_input_report(mode=0x21)
+
+        try:
+            # answer to sub command
+            if sub_command == SubCommand.REQUEST_DEVICE_INFO:
+                await self._command_request_device_info(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.SET_SHIPMENT_STATE:
+                await self._command_set_shipment_state(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.SPI_FLASH_READ:
+                await self._command_spi_flash_read(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.SET_INPUT_REPORT_MODE:
+                await self._command_set_input_report_mode(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME:
+                await self._command_trigger_buttons_elapsed_time(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.ENABLE_6AXIS_SENSOR:
+                await self._command_enable_6axis_sensor(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.ENABLE_VIBRATION:
+                await self._command_enable_vibration(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.SET_NFC_IR_MCU_CONFIG:
+                await self._command_set_nfc_ir_mcu_config(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.SET_NFC_IR_MCU_STATE:
+                await self._command_set_nfc_ir_mcu_state(response_report, sub_command_data)
+
+            elif sub_command == SubCommand.SET_PLAYER_LIGHTS:
+                await self._command_set_player_lights(response_report, sub_command_data)
+            else:
+                logger.warning(f'Sub command 0x{sub_command.value:02x} not implemented - ignoring')
+                return False
+
+            await self._write(response_report)
+
+        except NotImplementedError as err:
+            logger.error(f'Failed to answer {sub_command} - {err}')
+            return False
+        return True
+
+
+# transport hooks
 
     def connection_made(self, transport: BaseTransport) -> None:
         logger.debug('Connection established.')
         self.transport = transport
+        self._input_report_timer_start = time.time()
 
     def connection_lost(self, exc: Optional[Exception] = None) -> None:
         if self.transport is not None:
@@ -132,43 +232,8 @@ class ControllerProtocol(BaseProtocol):
         # TODO?
         raise NotImplementedError()
 
-    async def writer(self):
-        """
-        This continuously sends input reports to the switch.
-        This relies on the asyncio scheduler to sneak the additional
-        subcommand-replies in
-        """
-        logger.info("writer started")
-        while self.transport:
-            last_send_time = time.time()
-            input_report = InputReport()
-            if self._input_report_mode is None:
-                input_report.set_input_report_id(0x30)
-            elif self._input_report_mode == 0x30 or self._input_report_mode == 0x31:
-                input_report.set_vibrator_input()
-                input_report.set_misc()
-                input_report.set_input_report_id(self._input_report_mode)
-                input_report.set_6axis_data()
-                if self._input_report_mode == 0x31:
-                    input_report.set_ir_nfc_data(self._mcu.get_data())
-
-            await self.write(input_report)
-
-            # calculate delay
-            current_time = time.time()
-            active_time = current_time - last_send_time
-            sleep_time = self.send_delay - active_time
-            # last_send_time = current_time
-            if sleep_time < 0:
-                # logger.warning(f'Code is running {abs(sleep_time)} s too slow!')
-                sleep_time = 0
-
-            await asyncio.sleep(sleep_time)
-        logger.warning("Writer exited...")
-        return None
-
     async def report_received(self, data: Union[bytes, Text], addr: Tuple[str, int]) -> None:
-        self._data_received.set()
+        self.sig_data_received.set()
 
         try:
             report = OutputReport(list(data))
@@ -193,65 +258,41 @@ class ControllerProtocol(BaseProtocol):
         else:
             logger.warning(f'Output report {output_report_id} not implemented - ignoring')
 
-    async def _reply_to_sub_command(self, report):
-        # classify sub command
-        try:
-            sub_command = report.get_sub_command()
-        except NotImplementedError as err:
-            logger.warning(err)
-            return False
 
-        if sub_command is None:
-            raise ValueError('Received output report does not contain a sub command')
+# event lisnter hooks
 
-        logging.info(f'received Sub command {sub_command}')
+    async def send_controller_state(self):
+        """
+        Waits for the controller state to be send.
 
-        sub_command_data = report.get_sub_command_data()
-        assert sub_command_data is not None
+        Raises NotConnected exception if the transport is not connected or the connection was lost.
+        """
+        # TODO: Call write directly if in continuously sending input report mode
 
-        try:
-            # answer to sub command
-            if sub_command == SubCommand.REQUEST_DEVICE_INFO:
-                await self._command_request_device_info(sub_command_data)
+        if self.transport is None:
+            raise NotConnectedError('Transport not registered.')
 
-            elif sub_command == SubCommand.SET_SHIPMENT_STATE:
-                await self._command_set_shipment_state(sub_command_data)
+        self._controller_state.sig_is_send.clear()
 
-            elif sub_command == SubCommand.SPI_FLASH_READ:
-                await self._command_spi_flash_read(sub_command_data)
+        # wrap into a future to be able to set an exception in case of a disconnect
+        self._controller_state_sender = asyncio.ensure_future(self._controller_state.sig_is_send.wait())
+        await self._controller_state_sender
+        self._controller_state_sender = None
 
-            elif sub_command == SubCommand.SET_INPUT_REPORT_MODE:
-                await self._command_set_input_report_mode(sub_command_data)
+    async def wait_for_output_report(self):
+        """
+        Waits until an output report from the Switch is received.
+        """
+        self.sig_data_received.clear()
+        await self.sig_data_received.wait()
 
-            elif sub_command == SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME:
-                await self._command_trigger_buttons_elapsed_time(sub_command_data)
 
-            elif sub_command == SubCommand.ENABLE_6AXIS_SENSOR:
-                await self._command_enable_6axis_sensor(sub_command_data)
+    def get_controller_state(self) -> ControllerState:
+        return self._controller_state
 
-            elif sub_command == SubCommand.ENABLE_VIBRATION:
-                await self._command_enable_vibration(sub_command_data)
+# subcommands
 
-            elif sub_command == SubCommand.SET_NFC_IR_MCU_CONFIG:
-                await self._command_set_nfc_ir_mcu_config(sub_command_data)
-
-            elif sub_command == SubCommand.SET_NFC_IR_MCU_STATE:
-                await self._command_set_nfc_ir_mcu_state(sub_command_data)
-
-            elif sub_command == SubCommand.SET_PLAYER_LIGHTS:
-                await self._command_set_player_lights(sub_command_data)
-            else:
-                logger.warning(f'Sub command 0x{sub_command.value:02x} not implemented - ignoring')
-                return False
-        except NotImplementedError as err:
-            logger.error(f'Failed to answer {sub_command} - {err}')
-            return False
-        return True
-
-    async def _command_request_device_info(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
+    async def _command_request_device_info(self, input_report, sub_command_data):
 
         address = self.transport.get_extra_info('sockname')
         assert address is not None
@@ -260,27 +301,18 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_ack(0x82)
         input_report.sub_0x02_device_info(bd_address, controller=self.controller)
 
-        await self.write(input_report)
+        return input_report
 
-    async def _command_set_shipment_state(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
+    async def _command_set_shipment_state(self, input_report, sub_command_data):
         input_report.set_ack(0x80)
         input_report.reply_to_subcommand_id(0x08)
+        return input_report
 
-        await self.write(input_report)
-
-    async def _command_spi_flash_read(self, sub_command_data):
+    async def _command_spi_flash_read(self, input_report, sub_command_data):
         """
         Replies with 0x21 input report containing requested data from the flash memory.
         :param sub_command_data: input report sub command data bytes
         """
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
         input_report.set_ack(0x90)
 
         # parse offset
@@ -299,29 +331,22 @@ class ControllerProtocol(BaseProtocol):
             spi_flash_data = size * [0x00]
             input_report.sub_0x10_spi_flash_read(offset, size, spi_flash_data)
 
-        await self.write(input_report)
+        return input_report
 
-    async def _command_set_input_report_mode(self, sub_command_data):
+    async def _command_set_input_report_mode(self, input_report, sub_command_data):
         if self._input_report_mode == sub_command_data[0]:
             logger.warning(f'Already in input report mode {sub_command_data[0]} - ignoring request')
 
-        self._input_report_mode = sub_command_data[0]
+        self._set_mode(sub_command_data[0])
 
         # Send acknowledgement
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
 
         input_report.set_ack(0x80)
         input_report.reply_to_subcommand_id(0x03)
 
-        await self.write(input_report)
+        return input_report
 
-    async def _command_trigger_buttons_elapsed_time(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
+    async def _command_trigger_buttons_elapsed_time(self, input_report, sub_command_data):
         input_report.set_ack(0x83)
         input_report.reply_to_subcommand_id(SubCommand.TRIGGER_BUTTONS_ELAPSED_TIME)
         # Hack: We assume this command is only used during pairing - Set values so the Switch assigns a player number
@@ -333,33 +358,21 @@ class ControllerProtocol(BaseProtocol):
         else:
             raise NotImplementedError(self.controller)
 
-        await self.write(input_report)
+        return input_report
 
-    async def _command_enable_6axis_sensor(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
+    async def _command_enable_6axis_sensor(self, input_report, sub_command_data):
         input_report.set_ack(0x80)
         input_report.reply_to_subcommand_id(0x40)
 
-        await self.write(input_report)
+        return input_report
 
-    async def _command_enable_vibration(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
+    async def _command_enable_vibration(self, input_report, sub_command_data):
         input_report.set_ack(0x80)
         input_report.reply_to_subcommand_id(SubCommand.ENABLE_VIBRATION.value)
 
-        await self.write(input_report)
+        return input_report
 
-    async def _command_set_nfc_ir_mcu_config(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
+    async def _command_set_nfc_ir_mcu_config(self, input_report, sub_command_data):
         self._mcu.set_config_cmd(sub_command_data)
 
         input_report.set_ack(0xA0)
@@ -369,13 +382,9 @@ class ControllerProtocol(BaseProtocol):
         for i in range(len(data)):
             input_report.data[16 + i] = data[i]
 
-        await self.write(input_report)
+        return input_report
 
-    async def _command_set_nfc_ir_mcu_state(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
+    async def _command_set_nfc_ir_mcu_state(self, input_report, sub_command_data):
         self._mcu.set_power_state_cmd(sub_command_data[0])
 
         if sub_command_data[0] == 0x01:
@@ -389,19 +398,16 @@ class ControllerProtocol(BaseProtocol):
         else:
             raise NotImplementedError(f'Argument {sub_command_data[0]} of {SubCommand.SET_NFC_IR_MCU_STATE} '
                                       f'not implemented.')
-        await self.write(input_report)
+        return input_report
 
-    async def _command_set_player_lights(self, sub_command_data):
-        input_report = InputReport()
-        input_report.set_input_report_id(0x21)
-        input_report.set_misc()
-
+    async def _command_set_player_lights(self, input_report, sub_command_data):
         input_report.set_ack(0x80)
         input_report.reply_to_subcommand_id(SubCommand.SET_PLAYER_LIGHTS.value)
 
-        await self.write(input_report)
-        self._writer = asyncio.ensure_future(self.writer())
-        self._writer.add_done_callback(
+        #await self._write(input_report)
+        self._writer_thread = asyncio.ensure_future(self._writer())
+        self._writer_thread.add_done_callback(
             utils.create_error_check_callback()
         )
-        self.sig_set_player_lights.set()
+        self.sig_input_ready.set()
+        return input_report
