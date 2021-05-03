@@ -1,6 +1,84 @@
+#!/bin/python3
+
 # because pyhton has no --include....
 import sys
 sys.path.insert(0, '..')
+
+"""
+joycon_ip_proxy.py
+
+This is an improved fork of relay_joycon.py
+
+In general this script forwards network traffic between two points. Those two
+points beeing either Bluetooth-coonnections or TCP-Connections (or any combination)
+The "Joycon (R)" part is hardcoded when using Bluetooth-connections, since:
+- Joycon-L is rather unintresting
+- I never could get Procon to work...
+
+Options:
+    -S, --switch <BT-addr or IP:Port combo>
+        Where to talk to the switch. The script will try to connect to the given
+        address and expects a server ready to accept the connection.
+        Exception: when passing 00:00:00:00:00:00 it will instead open a Bluetooth-
+        server and wait for the Switch to connect (using the change Grip/Order menu).
+    -J, --joycon <BT-addr or IP:Port combo>
+        Where to talk to the Joycon. THe script will wait (read: start a server)
+        for a incoming connection from the given address and then attempt to
+        connect to the switch.
+
+How to use:
+- Option A: Direct mode
+    Assuming your switch is paired (meaning joycontrol -r would work) and
+    has the MAC 94:58:CB:12:34:56, your Joycon has the MAC 94:58:CB:ab:cd:ef
+
+    sudo joycon_ip_proxy.py -S 94:58:CB:12:34:56 -J 94:58:CB:ab:cd:ef
+
+    If your switch is not paired, use
+
+    sudo joycon_ip_proxy.py -S 00:00:00:00:00:00 -J 94:58:CB:ab:cd:ef
+
+    then press the sync button on the joycon, wait for it to connect,
+    then turn on the switch (and open the change grip menu in the second case).
+    Then pray it works...
+
+- Option B: Proxy via IP:
+    Assuming same MACs as above, you have 2 machines with bluetooth adapters and
+    both have port 33333 not used (you can use any other as you like),
+    one at 192.168.0.100 intended to connect to the switch,
+    the other at 192.168.0.101 intended to connect to the joycon.
+
+    1. Make sure the ethernet connection has *no* packet drop, a low ping and is ideally >= 1Gbit
+
+    2. on the first machine start the script like so:
+    sudo joycon_ip_proxy.py -S 94:58:CB:12:34:56 -J 192.168.0.101:33333
+    It should wait for the joycon now
+
+    3. on the Second machine start the script like so:
+    sudo joycon_ip_proxy.py -S 192.168.2.100:33333 -J 94:58:CB:ab:cd:ef
+    It also should wait for the joycon
+
+    4. press the Sync button on the joycon
+    the second machine should report that it's now trying to connect to the switch,
+    then the first should report the same and the second report that it already
+    started forwarding
+
+    5. Start the switch (and open the Change grip/order Menu if needed)
+    the first macine should connect and then also report it started forwarding.
+
+- Option C: yes you can supply IP addresses for both Switch AND Joycon,
+    in that case just go download a Proxy or something... I thought we doing
+    bluetooth debugging today.
+
+Problems:
+- The joycon just turns off: Most notably you were too slow.
+- The switch axes the connection: It didn't feel like getting hacked today
+- The Two machines in option B don't connect: see if you can `netcat` between
+  given ports, maybe your firewall, etc... is blocking it.
+- Port in use errors on subsequent runs: it takes 3-10 seconds to really "close"
+  a TCP-port. Just wait.
+"""
+
+
 
 import argparse
 import asyncio
