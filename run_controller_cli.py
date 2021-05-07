@@ -7,6 +7,7 @@ import os
 
 from aioconsole import ainput
 
+import joycontrol.debug as debug
 from joycontrol import logging_default as log, utils
 from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
@@ -164,8 +165,6 @@ async def mash_button(controller_state, button, interval):
     # await future to trigger exceptions in case something went wrong
     await user_input
 
-
-
 def _register_commands_with_controller_state(controller_state, cli):
     """
     Commands registered here can use the given controller state.
@@ -276,6 +275,22 @@ def _register_commands_with_controller_state(controller_state, cli):
 
     cli.add_command(nfc.__name__, nfc)
 
+    async def pause(*args):
+        """
+        Pause regular input
+        """
+        controller_state._protocol.pause()
+
+    cli.add_command(pause.__name__, pause)
+
+    async def unpause(*args):
+        """
+        unpause regular input
+        """
+        controller_state._protocol.unpause()
+
+    cli.add_command(unpause.__name__, unpause)
+
 
 async def _main(args):
     # Get controller name to emulate from arguments
@@ -305,6 +320,7 @@ async def _main(args):
         cli = ControllerCLI(controller_state)
         _register_commands_with_controller_state(controller_state, cli)
         cli.add_command('amiibo', ControllerCLI.deprecated('Command was removed - use "nfc" instead!'))
+        cli.add_command(debug.debug.__name__, debug.debug)
 
         # set default nfc content supplied by argument
         if args.nfc is not None:

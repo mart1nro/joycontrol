@@ -160,11 +160,13 @@ class ButtonState:
             self.zl, self.zl_is_set = button_method_factory('_byte_3', 7)
 
     def set_button(self, button, pushed=True):
+        button = button.lower()
         if button not in self._available_buttons:
             raise ValueError(f'Given button "{button}" is not available to {self.controller.device_name()}.')
         getattr(self, button)(pushed=pushed)
 
     def get_button(self, button):
+        button = button.lower()
         if button not in self._available_buttons:
             raise ValueError(f'Given button "{button}" is not available to {self.controller.device_name()}.')
         return getattr(self, f'{button}_is_set')()

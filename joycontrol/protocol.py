@@ -5,7 +5,8 @@ from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
 import math
 
-from joycontrol import utils
+import joycontrol.debug as debug
+import joycontrol.utils as utils
 from joycontrol.controller import Controller
 from joycontrol.controller_state import ControllerState
 from joycontrol.memory import FlashMemory
@@ -29,12 +30,12 @@ class ControllerProtocol(BaseProtocol):
     def __init__(self, controller: Controller, spi_flash: FlashMemory = None, reconnect = False):
         self.controller = controller
         self.spi_flash = spi_flash
+        self._pair_input = not reconnect
 
         self.transport = None
-
         # Increases for each input report send, should overflow at 0x100
         self._input_report_timer_start = None
-        self._input_report_wakeup = asyncio.Event()
+
 
         self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
         self._controller_state_sender = None
@@ -45,8 +46,17 @@ class ControllerProtocol(BaseProtocol):
         self._mcu = MicroControllerUnit(self._controller_state)
 
         # None = Send empty input reports & answer to sub commands
-        self._set_mode(None, )
+        self.delay_map = {
+            None: math.inf,
+            0x3F: 1.0,
+            0x21: math.inf,
+            0x30: 1/60 if reconnect else 1/15,
+            0x31: 1/60
+        }
+        self._input_report_wakeup = asyncio.Event()
         self._input_report_mode = None
+        self._paused_mode = 0x30
+        self._set_mode(None)
 
         self.sig_input_ready = asyncio.Event()
         self.sig_data_received = asyncio.Event()
@@ -55,26 +65,19 @@ class ControllerProtocol(BaseProtocol):
 
     def _set_mode(self, mode, delay=None):
 
-        delay_map = {
-            None: math.inf,
-            0x3F: 1.0,
-            0x21: math.inf,
-            0x30: 1/15,
-            0x31: 1/60
-        }
         self._input_report_mode = mode
-        if not delay:
-            delay = delay_map[mode]
-
-        if mode in delay_map:
-            self.send_delay = delay_map[mode]
+        if delay:
+            self.send_delay = self.delay_map[mode]
+        elif mode in self.delay_map:
+            self.send_delay = self.delay_map[mode]
         else:
             logger.warning(f"Unknown delay for mode {mode}, assuming 1/15")
+            self.send_delay = 1/15
 
         if mode in [0x30, 0x31, 0x32, 0x33]:
-            self.sig_input_ready.set()
+            # sig input ready, writer
+            pass
 
-        #asyncio.ensure_future(self.hci_scanner())
         self._input_report_wakeup.set()
 
     async def _write(self, input_report):
@@ -120,6 +123,25 @@ class ControllerProtocol(BaseProtocol):
                 input_report.set_ir_nfc_data(self._mcu.get_data())
         return input_report
 
+    async def _pair_inputter(self):
+        """
+        When pairing intially, we have to send 4 button presses first...
+        """
+        logger.info("pairing writer started")
+        button = {
+            Controller.JOYCON_R: 'Y',
+            Controller.JOYCON_L: 'Right',
+            Controller.PRO_CONTROLLER: 'Up'
+        }[self.controller]
+        state = False
+        for _ in range(4):
+            print("shouldnt be here")
+            await asyncio.sleep(1)
+            state = not state
+            self._controller_state.button_state.set_button(button, state)
+        self.sig_input_ready.set()
+        return None
+
     async def _writer(self):
         """
         This continuously sends input reports to the switch.
@@ -135,6 +157,7 @@ class ControllerProtocol(BaseProtocol):
             except:
                 break
             # calculate delay
+            self.send_delay = debug.get_delay(self.send_delay) #debug hook
             active_time = time.time() - last_send_time
             sleep_time = self.send_delay - active_time
             # last_send_time = current_time
@@ -143,8 +166,11 @@ class ControllerProtocol(BaseProtocol):
                 sleep_time = 0
 
             try:
-                await asyncio.wait_for(self._input_report_wakeup.wait(), timeout=sleep_time)
-                self._input_report_wakeup.clear()
+                while True:
+                    await asyncio.wait_for(self._input_report_wakeup.wait(), timeout=sleep_time)
+                    self._input_report_wakeup.clear()
+                    if self._input_report_mode != 0x21:
+                        break
             except asyncio.TimeoutError as err:
                 pass
 
@@ -211,7 +237,6 @@ class ControllerProtocol(BaseProtocol):
             return False
         return True
 
-
 # transport hooks
 
     def connection_made(self, transport: BaseTransport) -> None:
@@ -272,12 +297,15 @@ class ControllerProtocol(BaseProtocol):
         if self.transport is None:
             raise NotConnectedError('Transport not registered.')
 
-        self._controller_state.sig_is_send.clear()
+        if self._input_report_mode == 0x21:
+            await self._write(self._generate_input_report(mode=self._paused_mode))
+        else:
+            self._controller_state.sig_is_send.clear()
 
-        # wrap into a future to be able to set an exception in case of a disconnect
-        self._controller_state_sender = asyncio.ensure_future(self._controller_state.sig_is_send.wait())
-        await self._controller_state_sender
-        self._controller_state_sender = None
+            # wrap into a future to be able to set an exception in case of a disconnect
+            self._controller_state_sender = asyncio.ensure_future(self._controller_state.sig_is_send.wait())
+            await self._controller_state_sender
+            self._controller_state_sender = None
 
     async def wait_for_output_report(self):
         """
@@ -286,6 +314,13 @@ class ControllerProtocol(BaseProtocol):
         self.sig_data_received.clear()
         await self.sig_data_received.wait()
 
+
+    def pause(self):
+        self._paused_mode = self._input_report_mode
+        self._set_mode(0x21)
+
+    def unpause(self):
+        self._set_mode(self._paused_mode)
 
     def get_controller_state(self) -> ControllerState:
         return self._controller_state
@@ -404,10 +439,11 @@ class ControllerProtocol(BaseProtocol):
         input_report.set_ack(0x80)
         input_report.reply_to_subcommand_id(SubCommand.SET_PLAYER_LIGHTS.value)
 
-        #await self._write(input_report)
-        self._writer_thread = asyncio.ensure_future(self._writer())
-        self._writer_thread.add_done_callback(
-            utils.create_error_check_callback()
-        )
-        self.sig_input_ready.set()
+        self._writer_thread = utils.start_asyncio_thread(self._writer())
+        if self._pair_input:
+            print(f"This shuld be false: {self._pair_input}")
+            self._pair_input = False
+            utils.start_asyncio_thread(self._pair_inputter())
+        else:
+            self.sig_input_ready.set()
         return input_report

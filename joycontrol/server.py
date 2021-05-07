@@ -41,7 +41,27 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
     """
     protocol = protocol_factory()
 
+    hid = HidDevice(device_id=device_id)
+
+    if len(hid.get_UUIDs()) > 3:
+        print("too many SPD-records active, Switch might refuse connection.")
+        print("try modifieing /lib/systemd/system/bluetooth.service and see")
+        print("https://github.com/Poohl/joycontrol/issues/4 if it doesn't work")
+
+    bt_addr = hid.get_address()
+    if bt_addr[:8] != "94:58:CB":
+        await hid.set_address("94:58:CB" + bt_addr[8:])
+        bt_addr = hid.get_address()
+
     if reconnect_bt_addr is None:
+        sw = hid.get_paired_switch()
+        while sw:
+            print(f"Warning: a switch ({sw}) was found paired, do you want to unpair it?")
+            i = input("y/n [y]: ")
+            if i == '' or i == 'y' or i == 'Y':
+                hid.unpair_path(sw)
+            sw = hid.get_paired_switch()
+
         ctl_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
         itr_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
         ctl_sock.setblocking(False)
@@ -50,10 +70,8 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         itr_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         try:
-            hid = HidDevice(device_id=device_id)
-
-            ctl_sock.bind((hid.address, ctl_psm))
-            itr_sock.bind((hid.address, itr_psm))
+            ctl_sock.bind((bt_addr, ctl_psm))
+            itr_sock.bind((bt_addr, itr_psm))
         except OSError as err:
             logger.warning(err)
             # If the ports are already taken, this probably means that the bluez "input" plugin is enabled.
@@ -66,10 +84,8 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
             await utils.run_system_command('systemctl restart bluetooth.service')
             await asyncio.sleep(1)
 
-            hid = HidDevice(device_id=device_id)
-
-            ctl_sock.bind((socket.BDADDR_ANY, ctl_psm))
-            itr_sock.bind((socket.BDADDR_ANY, itr_psm))
+            ctl_sock.bind((bt_addr, ctl_psm))
+            itr_sock.bind((bt_addr, itr_psm))
 
         ctl_sock.listen(1)
         itr_sock.listen(1)
@@ -107,6 +123,17 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         hid.pairable(False)
 
     else:
+        if reconnect_bt_addr.lower() == 'auto':
+            path = hid.get_paired_switch()
+            if not path:
+                logger.fatal("couldn't find paired switch to reconnect to, terminating...")
+                exit(1)
+            else:
+                reconnect_bt_addr = hid.get_address_of_paired_path(path)
+                logger.info(f"auto detected paired switch {reconnect_bt_addr}")
+        else:
+            # Todo: figure out if we're actually paired
+            pass
         # Reconnection to reconnect_bt_addr
         client_ctl = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
         client_itr = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)

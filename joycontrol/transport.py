@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 class NotConnectedError(ConnectionResetError):
     pass
 
-
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = 20) -> None:
+    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = 10) -> None:
         super(L2CAP_Transport, self).__init__()
 
         self._loop = loop
@@ -27,7 +26,10 @@ class L2CAP_Transport(asyncio.Transport):
         self._read_buffer_size = read_buffer_size
         self._flow_control = flow_control
         if flow_control:
-            self._pending_packets = asyncio.Semaphore(flow_control)
+            self._write_lock = asyncio.Event()
+            self._write_lock.set()
+            #self._pending_packets = asyncio.Semaphore(flow_control)
+            self._pending_packets = asyncio.Semaphore(1)
 
         self._extra_info = {
             'peername': self._itr_sock.getpeername(),
@@ -48,17 +50,33 @@ class L2CAP_Transport(asyncio.Transport):
             asyncio.ensure_future(self._hci_mon())
 
     async def _hci_mon(self):
+        global flag
         hci = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
         hci.bind((0,))
-        # 0x10 = 1 << 4 = HCI_EVT
+        # 0x04 = HCI_EVT; 0x13 = Number of completed packets
         hci.setblocking(False)
-        hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 0x10, 1 << 0x13, 0, 0))
+        hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x13) | (1 << 0x1b), 0, 0))
         #hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, pack("IIIh2x", 0x10, 0xFFFFFFFF, 0, 0))
 
         while True:
-            await self._loop.sock_recv(hci, 300)
-            self._pending_packets.release()
-            self._pending_packets.release()
+            data = await self._loop.sock_recv(hci, 300)
+            if data[1] == 0x13:
+                #print(f"flow ctl: {self._pending_packets._value}, releasing {data[6] + data[7] * 0x100}")
+                for _ in range(data[6] + data[7] * 0x100):
+                    self._pending_packets.release()
+            elif data[1] == 0x1b:
+                continue
+                if flag:
+                    if data[-1] < 5:
+                        self._write_lock.clear()
+                        logger.info("Lcoking write")
+                        #self._protocol._set_mode(self._protocol._input_report_mode, delay=1/15)
+                    elif data[-1] >= 5:
+                        self._write_lock.set()
+                        logger.info("unlocking write")
+                        #self._protocol._set_mode(self._protocol._input_report_mode)
+                else:
+                    flag = True
 
     async def _reader(self):
         while True:
@@ -147,6 +165,8 @@ class L2CAP_Transport(asyncio.Transport):
         try:
             if self._flow_control:
                 await self._pending_packets.acquire()
+                #if _bytes[1] != 0x21:
+                #    await self._write_lock.wait()
             await self._loop.sock_sendall(self._itr_sock, _bytes)
         except OSError as err:
             logger.error(err)

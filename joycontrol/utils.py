@@ -83,7 +83,7 @@ async def run_system_command(cmd):
 def start_asyncio_thread(func, ignore=None):
     out = asyncio.ensure_future(func)
     out.add_done_callback(
-        utils.create_error_check_callback(ignore=ignore)
+        create_error_check_callback(ignore=ignore)
     )
     return out
 
