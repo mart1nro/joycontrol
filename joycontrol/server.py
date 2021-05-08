@@ -142,6 +142,11 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         client_ctl.setblocking(False)
         client_itr.setblocking(False)
 
+    # I have spent 8 hours, one stackoverflow question and read pythons socket sourcecode
+    # to find tis fucking option somewhere in a GNUC API description. (here: https://www.gnu.org/software/libc/manual/html_node/Socket_002dLevel-Options.html)
+    # FUCK LINUX OPEN SOURCE. I'd rather have a DOCUMENTATION than the source of this garbage.
+    client_ctl.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 0)
+    client_itr.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 0)
     # create transport for the established connection and activate the HID protocol
     transport = L2CAP_Transport(asyncio.get_event_loop(), protocol, client_itr, client_ctl, 50, capture_file=capture_file)
     protocol.connection_made(transport)

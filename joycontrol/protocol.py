@@ -5,8 +5,11 @@ from asyncio import BaseTransport, BaseProtocol
 from typing import Optional, Union, Tuple, Text
 import math
 
+import enum
 import joycontrol.debug as debug
+import socket
 import joycontrol.utils as utils
+import struct
 from joycontrol.controller import Controller
 from joycontrol.controller_state import ControllerState
 from joycontrol.memory import FlashMemory
@@ -26,37 +29,48 @@ def controller_protocol_factory(controller: Controller, spi_flash=None, reconnec
 
     return create_controller_protocol
 
+class SwitchState(enum.Enum):
+    STANDARD = enum.auto,
+    GRIP_MENU = enum.auto,
+    AWAITING_MAX_SLOTS = enum.auto
+
+close_pairing_menu_map = {
+    Controller.JOYCON_R: ['x', 'a', 'home'],
+    Controller.JOYCON_L: ['down', 'left'],
+    Controller.PRO_CONTROLLER: ['a', 'b', 'home']
+}
+
 class ControllerProtocol(BaseProtocol):
     def __init__(self, controller: Controller, spi_flash: FlashMemory = None, reconnect = False):
         self.controller = controller
         self.spi_flash = spi_flash
-        self._pair_input = not reconnect
-
         self.transport = None
-        # Increases for each input report send, should overflow at 0x100
-        self._input_report_timer_start = None
 
+        # time when the timer started.
+        self._input_report_timer_start = None
 
         self._controller_state = ControllerState(self, controller, spi_flash=spi_flash)
         self._controller_state_sender = None
         self._writer_thread = None
-        # delay between two input reports
-        self.send_delay = 1/60 if reconnect else 1/15
 
         self._mcu = MicroControllerUnit(self._controller_state)
 
-        # None = Send empty input reports & answer to sub commands
+        # input mode
         self.delay_map = {
-            None: math.inf,
+            None: math.inf, # subcommands only
             0x3F: 1.0,
-            0x21: math.inf,
-            0x30: 1/60 if reconnect else 1/15,
+            0x21: math.inf, # shouldn't happen
+            0x30: 1/60 if reconnect else 1/15, # this needs revising
             0x31: 1/60
         }
         self._input_report_wakeup = asyncio.Event()
         self._input_report_mode = None
-        self._paused_mode = 0x30
         self._set_mode(None)
+
+        # "Pausing"-mechanism.
+        self._max_slots_triggering_buttons = [] if reconnect else close_pairing_menu_map[controller]
+        self._not_paused = asyncio.Event()
+        self._not_paused.set()
 
         self.sig_input_ready = asyncio.Event()
         self.sig_data_received = asyncio.Event()
@@ -64,6 +78,9 @@ class ControllerProtocol(BaseProtocol):
 # INTERNAL
 
     def _set_mode(self, mode, delay=None):
+
+        if mode == 0x21:
+            logger.error("Shouldn't go into subcommand mode")
 
         self._input_report_mode = mode
         if delay:
@@ -88,6 +105,17 @@ class ControllerProtocol(BaseProtocol):
         """
         if self.transport is None:
             raise NotConnectedError('Transport not registered.')
+
+        if not self._not_paused.is_set():
+            logger.warning("Write while paused")
+        #HACK: we should really check the the report instead
+        if any(map(lambda b: self._controller_state.button_state.get_button(b), self._max_slots_triggering_buttons)):
+            # this would trigger the dreaded Max Slots Change event, shut up asap
+            self.pause()
+            logger.info("max slots trigger activated, paused")
+            self._max_slots_triggering_buttons = []
+            utils.start_asyncio_thread(self._unpause_later(2))
+            #utils.start_asyncio_thread(self._wait_for_max_slots_change(sig=self._not_paused))
 
         await self.transport.write(input_report)
 
@@ -123,25 +151,6 @@ class ControllerProtocol(BaseProtocol):
                 input_report.set_ir_nfc_data(self._mcu.get_data())
         return input_report
 
-    async def _pair_inputter(self):
-        """
-        When pairing intially, we have to send 4 button presses first...
-        """
-        logger.info("pairing writer started")
-        button = {
-            Controller.JOYCON_R: 'Y',
-            Controller.JOYCON_L: 'Right',
-            Controller.PRO_CONTROLLER: 'Up'
-        }[self.controller]
-        state = False
-        for _ in range(4):
-            print("shouldnt be here")
-            await asyncio.sleep(1)
-            state = not state
-            self._controller_state.button_state.set_button(button, state)
-        self.sig_input_ready.set()
-        return None
-
     async def _writer(self):
         """
         This continuously sends input reports to the switch.
@@ -150,6 +159,7 @@ class ControllerProtocol(BaseProtocol):
         """
         logger.info("writer started")
         while self.transport:
+            await self._not_paused.wait()
             last_send_time = time.time()
             input_report = self._generate_input_report()
             try:
@@ -160,22 +170,36 @@ class ControllerProtocol(BaseProtocol):
             self.send_delay = debug.get_delay(self.send_delay) #debug hook
             active_time = time.time() - last_send_time
             sleep_time = self.send_delay - active_time
-            # last_send_time = current_time
             if sleep_time < 0:
                 logger.warning(f'Code is running {abs(sleep_time)} s too slow!')
                 sleep_time = 0
 
             try:
-                while True:
-                    await asyncio.wait_for(self._input_report_wakeup.wait(), timeout=sleep_time)
-                    self._input_report_wakeup.clear()
-                    if self._input_report_mode != 0x21:
-                        break
+                await asyncio.wait_for(self._input_report_wakeup.wait(), timeout=sleep_time)
+                self._input_report_wakeup.clear()
             except asyncio.TimeoutError as err:
                 pass
 
         logger.warning("Writer exited...")
         return None
+
+    async def _wait_for_max_slots_change(self, sig=None):
+        loop = asyncio.get_running_loop()
+        hci = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
+        hci.bind((0,))
+        # 0x04 = HCI_EVT; 0x1b = Max Slots change
+        hci.setblocking(False)
+        hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x1b), 0, 0))
+        logger.info("max_slots_change monitor started")
+        while (await loop.sock_recv(hci, 300))[5] < 5:
+            logger.info("Got Max slots change with wrong value")
+        logger.info("Max slots back to normal, unpausing")
+        if sig:
+            sig.set()
+
+    async def _unpause_later(self, delay):
+        await asyncio.sleep(delay)
+        self.unpause()
 
     async def _reply_to_sub_command(self, report):
         # classify sub command
@@ -297,8 +321,8 @@ class ControllerProtocol(BaseProtocol):
         if self.transport is None:
             raise NotConnectedError('Transport not registered.')
 
-        if self._input_report_mode == 0x21:
-            await self._write(self._generate_input_report(mode=self._paused_mode))
+        if not self._not_paused.is_set():
+            await self._write(self._generate_input_report())
         else:
             self._controller_state.sig_is_send.clear()
 
@@ -314,13 +338,16 @@ class ControllerProtocol(BaseProtocol):
         self.sig_data_received.clear()
         await self.sig_data_received.wait()
 
+    def anticipate_max_slots_change(self, buttons):
+        self._max_slots_triggering_buttons = buttons
 
     def pause(self):
-        self._paused_mode = self._input_report_mode
-        self._set_mode(0x21)
+        logger.info("paused")
+        self._not_paused.clear()
 
     def unpause(self):
-        self._set_mode(self._paused_mode)
+        logger.info("unpaused")
+        self._not_paused.set()
 
     def get_controller_state(self) -> ControllerState:
         return self._controller_state
@@ -440,10 +467,5 @@ class ControllerProtocol(BaseProtocol):
         input_report.reply_to_subcommand_id(SubCommand.SET_PLAYER_LIGHTS.value)
 
         self._writer_thread = utils.start_asyncio_thread(self._writer())
-        if self._pair_input:
-            print(f"This shuld be false: {self._pair_input}")
-            self._pair_input = False
-            utils.start_asyncio_thread(self._pair_inputter())
-        else:
-            self.sig_input_ready.set()
+        self.sig_input_ready.set()
         return input_report

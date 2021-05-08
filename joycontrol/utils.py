@@ -81,11 +81,19 @@ async def run_system_command(cmd):
     return proc.returncode, stdout, stderr
 
 def start_asyncio_thread(func, ignore=None):
+    """
+    Yes, these are not actual threads. But for all asyncio intents and purposes
+    they behave like they are.
+    """
     out = asyncio.ensure_future(func)
     out.add_done_callback(
         create_error_check_callback(ignore=ignore)
     )
     return out
+
+async def aio_chain(*args):
+    for a in args:
+        await a
 
 """
 async def get_bt_mac_address(dev=0):

@@ -130,6 +130,4 @@ class HidDevice:
 
     @staticmethod
     def get_address_of_paired_path(path):
-        reconnect_bt_addr = str(dbus.SystemBus().get_object('org.bluez', path).Get('org.bluez.Device1', "Address", dbus_interface='org.freedesktop.DBus.Properties'))
-
-        return _uuid
+        return str(dbus.SystemBus().get_object('org.bluez', path).Get('org.bluez.Device1', "Address", dbus_interface='org.freedesktop.DBus.Properties'))
