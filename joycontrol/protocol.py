@@ -68,7 +68,7 @@ class ControllerProtocol(BaseProtocol):
         self._set_mode(None)
 
         # "Pausing"-mechanism.
-        self._max_slots_triggering_buttons = [] if reconnect else close_pairing_menu_map[controller]
+        self._max_slots_triggering_buttons = [] # if reconnect else close_pairing_menu_map[controller]
         self._not_paused = asyncio.Event()
         self._not_paused.set()
 
