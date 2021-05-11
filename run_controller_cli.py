@@ -291,7 +291,6 @@ def _register_commands_with_controller_state(controller_state, cli):
 
     cli.add_command(unpause.__name__, unpause)
 
-
 async def _main(args):
     # Get controller name to emulate from arguments
     controller = Controller.from_arg(args.controller)
@@ -312,7 +311,8 @@ async def _main(args):
         transport, protocol = await create_hid_server(factory, reconnect_bt_addr=args.reconnect_bt_addr,
                                                       ctl_psm=ctl_psm,
                                                       itr_psm=itr_psm, capture_file=capture_file,
-                                                      device_id=args.device_id)
+                                                      device_id=args.device_id,
+                                                      interactive=True)
 
         controller_state = protocol.get_controller_state()
 

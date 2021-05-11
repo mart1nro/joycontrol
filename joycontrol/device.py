@@ -37,14 +37,16 @@ class HidDevice:
         """
         return str(self.properties.Get(self.adapter.dbus_interface, "Address"))
 
-    async def set_address(self, bt_addr):
+    async def set_address(self, bt_addr, interactive=True):
+        if not interactive:
+            return False
         # TODO: automated detection
         print(f"Attempting to change the bluetooth MAC to {bt_addr}")
         print("please choose your method:")
         print("\t1: bdaddr - ericson, csr, TI, broadcom, zeevo, st")
         print("\t2: hcitool - intel chipsets")
         print("\t3: hcitool - cypress (raspberri pi 3B+ & 4B)")
-        print("\tx: abort")
+        print("\tx: abort, dont't change")
         hci_version = " ".join(reversed(list(map(lambda h: '0x' + h, bt_addr.split(":")))))
         c = input()
         if c == '1':
@@ -68,12 +70,13 @@ class HidDevice:
             logger.info(f"Changed bt_addr to {bt_addr}")
             return True
 
-    def get_paired_switch(self):
+    def get_paired_switches(self):
+        switches = []
         for path, ifaces in dbus.SystemBus().get_object('org.bluez', '/').GetManagedObjects('org.freedesktop.DBus.ObjectManager', dbus_interface='org.freedesktop.DBus.ObjectManager').items():
             d = ifaces.get("org.bluez.Device1")
             if d and d['Name'] == "Nintendo Switch":
-                return path
-        return None
+                switches += [path]
+        return switches
 
     def unpair_path(self, path):
         self.adapter.RemoveDevice(path)

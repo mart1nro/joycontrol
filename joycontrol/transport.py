@@ -3,9 +3,12 @@ import logging
 import struct
 import time
 import socket
+import math
 from typing import Any
+from contextlib import suppress
 
 from joycontrol import utils
+from joycontrol.my_semaphore import MyBoundedSemaphore
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +17,7 @@ class NotConnectedError(ConnectionResetError):
     pass
 
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = 10) -> None:
-        #TODO: dynamic flow control. Higher values cause less stuttering but the anticipare_max_slots might break
+    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = math.inf) -> None:
         super(L2CAP_Transport, self).__init__()
 
         self._loop = loop
@@ -24,10 +26,7 @@ class L2CAP_Transport(asyncio.Transport):
         self._itr_sock = itr_sock
         self._ctr_sock = ctr_sock
 
-        self._read_buffer_size = read_buffer_size
-
-        if flow_control:
-            self._flow_control_init(flow_control)
+        self._capture_file = capture_file
 
         self._extra_info = {
             'peername': self._itr_sock.getpeername(),
@@ -36,77 +35,43 @@ class L2CAP_Transport(asyncio.Transport):
         }
 
         self._is_closing = False
+
+        # writing control
+        self._write_lock = asyncio.Event()
+        self._write_lock.set()
+        self._write_lock_thread = utils.start_asyncio_thread(self._write_lock_monitor(), ignore=asyncio.CancelledError)
+        self._write_window = MyBoundedSemaphore(flow_control)
+        self._write_window_thread = utils.start_asyncio_thread(self._write_window_monitor(), ignore=asyncio.CancelledError)
+
+        # reading control
+        self._read_buffer_size = read_buffer_size
         self._is_reading = asyncio.Event()
-
-        self._capture_file = capture_file
-
-        # start underlying reader
         self._is_reading.set()
         self._read_thread = utils.start_asyncio_thread(self._reader(), ignore=asyncio.CancelledError)
 
-# flow control
+    async def _write_window_monitor(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as hci:
+            hci.bind((0,))
+            hci.setblocking(False)
+            # 0x04 = HCI_EVT; 0x13 = Number of completed packets
+            hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x13), 0, 0))
 
-    async def _flow_monitor(self):
-        hci = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
-        hci.bind((0,))
-        hci.setblocking(False)
-        # 0x04 = HCI_EVT; 0x13 = Number of completed packets
-        hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x13), 0, 0))
+            while True:
+                data = await self._loop.sock_recv(hci, 10)
+                self._write_window.release(data[6] + data[7] * 0x100, best_effort=True)
 
-        while True:
-            data = await self._loop.sock_recv(hci, 10)
-            #print(f"flow ctl: {self._pending_packets._value}, releasing {data[6] + data[7] * 0x100}")
-            for _ in range(data[6] + data[7] * 0x100):
-                self._flow_window.release()
-
-    async def _lock_monitor(self):
-        hci = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
-        hci.bind((0,))
-        hci.setblocking(False)
-        hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x1b), 0, 0))
-        while True:
-            data = await self._loop.sock_recv(hci, 10)
-            if data[5] < 5:
-                self._flow_control_lock()
-                await asyncio.sleep(1)
-                self._flow_control_unlock()
-
-    def _flow_control_init(self, flow_control):
-        self._flow_control = bool(flow_control)
-        if flow_control:
-            self._flow_lock = asyncio.Event()
-            self._flow_lock.set()
-
-            self._flow_window = asyncio.Semaphore(flow_control)
-
-            self._flow_control_monitor = utils.start_asyncio_thread(self._flow_monitor(), ignore=asyncio.CancelledError)
-            self._lock_control_monitor = utils.start_asyncio_thread(self._lock_monitor(), ignore=asyncio.CancelledError)
-
-    async def _flow_control_send(self):
-        if self._flow_control:
-            await self._flow_window.acquire()
-            await self._flow_lock.wait()
-
-    def _flow_control_lock(self):
-        if self._flow_control:
-            logger.info("transport lock")
-            self._flow_lock.clear()
-
-    def _flow_control_unlock(self):
-        if self._flow_control:
-            logger.info("transport unlock")
-            self._flow_lock.set()
-
-    async def _flow_control_deinit(self):
-        if self._flow_control:
-            self._flow_control_monitor.cancel()
-            self._lock_control_monitor.cancel()
-
-            try:
-                await self._flow_control_monitor
-                await self._lock_control_monitor
-            except asyncio.CancelledError:
-                pass
+    async def _write_lock_monitor(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as hci:
+            hci.bind((0,))
+            hci.setblocking(False)
+            # 0x04 = HCI_EVT; 0x1b = Max Slots Change
+            hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x1b), 0, 0))
+            while True:
+                data = await self._loop.sock_recv(hci, 10)
+                if data[5] < 5:
+                    self.pause_writing()
+                    await asyncio.sleep(1)
+                    self.resume_writing()
 
     async def _reader(self):
         while True:
@@ -128,7 +93,6 @@ class L2CAP_Transport(asyncio.Transport):
             # disconnect happened
             logger.error('No data received.')
             self._protocol.connection_lost()
-            raise NotConnectedError('No data received.')
 
         if self._capture_file is not None:
             # write data to log file
@@ -137,6 +101,25 @@ class L2CAP_Transport(asyncio.Transport):
             self._capture_file.write(_time + size + data)
 
         return data
+
+# Base transport API
+
+    def write_eof():
+        raise NotImplementedError("cannot write EOF")
+
+    def get_extra_info(self, name: Any, default=None) -> Any:
+        return self._extra_info.get(name, default)
+
+    def is_closing(self) -> bool:
+        return self._is_closing
+
+    def set_protocol(self, protocol: asyncio.BaseProtocol) -> None:
+        self._protocol = protocol
+
+    def get_protocol(self) -> asyncio.BaseProtocol:
+        return self._protocol
+
+# Read-Transport API
 
     def is_reading(self) -> bool:
         """
@@ -159,6 +142,29 @@ class L2CAP_Transport(asyncio.Transport):
     def set_read_buffer_size(self, size):
         self._read_buffer_size = size
 
+# Write-Transport API:
+# This is not compliant to the official trasnport API, as the core methods
+# are asnyc. This is because the official API has no control over time and
+# imho is quite lacking...
+
+    def abort():
+        raise NotImplementedError()
+
+    def can_write_eof():
+        return False
+
+    def get_write_buffer_size():
+        return self._write_window.get_aquired()
+
+    def get_write_buffer_limits():
+        return (0, self._write_window.get_limit())
+
+    def set_write_buffer_limits(high=None, low=None):
+        if low:
+            raise NotImplementedError("Cannot set a lower bound for in flight data...")
+
+        self._write_window.set_limit(high)
+
     async def write(self, data: Any) -> None:
         if isinstance(data, bytes):
             _bytes = data
@@ -174,25 +180,25 @@ class L2CAP_Transport(asyncio.Transport):
         # logger.debug(f'sending "{_bytes}"')
 
         try:
-            await self._flow_control_send()
+            await self._write_window.acquire()
+            await self._write_lock.wait()
             await self._loop.sock_sendall(self._itr_sock, _bytes)
         except OSError as err:
             logger.error(err)
             self._protocol.connection_lost()
-            raise NotConnectedError(err)
         except ConnectionResetError as err:
             logger.error(err)
             self._protocol.connection_lost()
-            raise err
 
-    def abort(self) -> None:
-        raise NotImplementedError
+    async def writelines(*data):
+        for d in data:
+            await self.write(data)
 
-    def get_extra_info(self, name: Any, default=None) -> Any:
-        return self._extra_info.get(name, default)
+    def pause_writing(self):
+        self._write_lock.clear()
 
-    def is_closing(self) -> bool:
-        return self._is_closing
+    def resume_writing(self):
+        self._write_lock.set()
 
     async def close(self):
         """
@@ -201,21 +207,23 @@ class L2CAP_Transport(asyncio.Transport):
         if not self._is_closing:
             # was not already closed
             self._is_closing = True
-            self._read_thread.cancel()
-            await self._flow_control_deinit()
 
-            try:
+            self.pause_reading()
+            self.pause_writing()
+
+            self._read_thread.cancel()
+            self._write_lock_thread.cancel()
+            self._write_window_thread.cancel()
+
+            with suppress(asyncio.CancelledError):
                 await self._read_thread
-                await self._flow_control_monitor
-            except asyncio.CancelledError:
-                pass
+            with suppress(asyncio.CancelledError):
+                await self._write_lock_thread
+            with suppress(asyncio.CancelledError):
+                await self._write_window_thread
 
             # interrupt connection should be closed first
             self._itr_sock.close()
             self._ctr_sock.close()
 
-    def set_protocol(self, protocol: asyncio.BaseProtocol) -> None:
-        self._protocol = protocol
-
-    def get_protocol(self) -> asyncio.BaseProtocol:
-        return self._protocol
+            self._protocol.connection_lost(None)

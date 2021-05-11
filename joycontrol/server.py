@@ -22,7 +22,7 @@ async def _send_empty_input_reports(transport):
 
 
 async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=None, reconnect_bt_addr=None,
-                            capture_file=None):
+                            capture_file=None, interactive=False):
     """
     :param protocol_factory: Factory function returning a ControllerProtocol instance
     :param ctl_psm: hid control channel port
@@ -37,6 +37,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
                       Otherwise, the function assumes an initial pairing with the console was already done
                       and reconnects to the provided Bluetooth address.
     :param capture_file: opened file to log incoming and outgoing messages
+    :param interactive: whether or not questions to the user via input and print are allowed
     :returns transport for input reports and protocol which handles incoming output reports
     """
     protocol = protocol_factory()
@@ -44,23 +45,29 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
     hid = HidDevice(device_id=device_id)
 
     if len(hid.get_UUIDs()) > 3:
-        print("too many SPD-records active, Switch might refuse connection.")
-        print("try modifieing /lib/systemd/system/bluetooth.service and see")
-        print("https://github.com/Poohl/joycontrol/issues/4 if it doesn't work")
+        if interactive:
+            print("too many SPD-records active, Switch might refuse connection.")
+            print("try modifieing /lib/systemd/system/bluetooth.service and see")
+            print("https://github.com/Poohl/joycontrol/issues/4 if it doesn't work")
+        else:
+            logger.warning("detected too many SPD-records. Switch might refuse connection.")
 
     bt_addr = hid.get_address()
     if bt_addr[:8] != "94:58:CB":
-        await hid.set_address("94:58:CB" + bt_addr[8:])
+        await hid.set_address("94:58:CB" + bt_addr[8:], interactive=interactive)
         bt_addr = hid.get_address()
 
     if reconnect_bt_addr is None:
-        sw = hid.get_paired_switch()
-        while sw:
-            print(f"Warning: a switch ({sw}) was found paired, do you want to unpair it?")
-            i = input("y/n [y]: ")
-            if i == '' or i == 'y' or i == 'Y':
-                hid.unpair_path(sw)
-            sw = hid.get_paired_switch()
+        if interactive:
+            for sw in hid.get_paired_switches():
+                print(f"Warning: a switch ({sw}) was found paired, do you want to unpair it?")
+                i = input("y/n [y]: ")
+                if i == '' or i == 'y' or i == 'Y':
+                    hid.unpair_path(sw)
+        else:
+            b = hid.get_paired_switches()
+            if b:
+                logger.warning(f"Attempting initial pairing, but switches are paired: {b}")
 
         ctl_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
         itr_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
@@ -124,13 +131,28 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
 
     else:
         if reconnect_bt_addr.lower() == 'auto':
-            path = hid.get_paired_switch()
-            if not path:
+            paths = hid.get_paired_switches()
+            path = ""
+            if not paths:
                 logger.fatal("couldn't find paired switch to reconnect to, terminating...")
                 exit(1)
+            elif len(paths) > 1:
+                if interactive:
+                    print("found the following paired switches, please choose one:")
+                    for i, p in paths.items():
+                        print(f" {i}: {p}")
+                    choice = input(f"number 1 - {len(paths)} [1]:")
+                    if not choice:
+                        path = paths[0]
+                    else:
+                        path = paths[int(choice)-1]
+                else:
+                    path = paths[0]
+                    logger.warning(f"Automatic reconnect address chose {path} out of {paths}")
             else:
-                reconnect_bt_addr = hid.get_address_of_paired_path(path)
-                logger.info(f"auto detected paired switch {reconnect_bt_addr}")
+                path = paths[0]
+                logger.info(f"auto detected paired switch {path}")
+            reconnect_bt_addr = hid.get_address_of_paired_path(path)
         else:
             # Todo: figure out if we're actually paired
             pass

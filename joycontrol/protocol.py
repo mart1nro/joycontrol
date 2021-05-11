@@ -68,7 +68,6 @@ class ControllerProtocol(BaseProtocol):
         self._set_mode(None)
 
         # "Pausing"-mechanism.
-        self._max_slots_triggering_buttons = [] # if reconnect else close_pairing_menu_map[controller]
         self._not_paused = asyncio.Event()
         self._not_paused.set()
 
@@ -108,14 +107,6 @@ class ControllerProtocol(BaseProtocol):
 
         if not self._not_paused.is_set():
             logger.warning("Write while paused")
-        #HACK: we should really check the the report instead
-        if any(map(lambda b: self._controller_state.button_state.get_button(b), self._max_slots_triggering_buttons)):
-            # this would trigger the dreaded Max Slots Change event, shut up asap
-            self.pause()
-            logger.info("max slots trigger activated, paused")
-            self._max_slots_triggering_buttons = []
-            utils.start_asyncio_thread(self._unpause_later(2))
-            #utils.start_asyncio_thread(self._wait_for_max_slots_change(sig=self._not_paused))
 
         await self.transport.write(input_report)
 
@@ -182,24 +173,6 @@ class ControllerProtocol(BaseProtocol):
 
         logger.warning("Writer exited...")
         return None
-
-    async def _wait_for_max_slots_change(self, sig=None):
-        loop = asyncio.get_running_loop()
-        hci = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
-        hci.bind((0,))
-        # 0x04 = HCI_EVT; 0x1b = Max Slots change
-        hci.setblocking(False)
-        hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x1b), 0, 0))
-        logger.info("max_slots_change monitor started")
-        while (await loop.sock_recv(hci, 300))[5] < 5:
-            logger.info("Got Max slots change with wrong value")
-        logger.info("Max slots back to normal, unpausing")
-        if sig:
-            sig.set()
-
-    async def _unpause_later(self, delay):
-        await asyncio.sleep(delay)
-        self.unpause()
 
     async def _reply_to_sub_command(self, report):
         # classify sub command
@@ -337,9 +310,6 @@ class ControllerProtocol(BaseProtocol):
         """
         self.sig_data_received.clear()
         await self.sig_data_received.wait()
-
-    def anticipate_max_slots_change(self, buttons):
-        self._max_slots_triggering_buttons = buttons
 
     def pause(self):
         logger.info("paused")
