@@ -132,3 +132,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Ubuntu
+.Trash-*/
+
+# binarys or dumps
+*.bin

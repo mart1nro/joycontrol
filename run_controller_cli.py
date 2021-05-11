@@ -7,6 +7,7 @@ import os
 
 from aioconsole import ainput
 
+import joycontrol.debug as debug
 from joycontrol import logging_default as log, utils
 from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
@@ -14,6 +15,7 @@ from joycontrol.controller_state import ControllerState, button_push, button_pre
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
 from joycontrol.server import create_hid_server
+from joycontrol.nfc_tag import NFCTag
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +165,6 @@ async def mash_button(controller_state, button, interval):
     # await future to trigger exceptions in case something went wrong
     await user_input
 
-
-
 def _register_commands_with_controller_state(controller_state, cli):
     """
     Commands registered here can use the given controller state.
@@ -265,19 +265,31 @@ def _register_commands_with_controller_state(controller_state, cli):
         if controller_state.get_controller() == Controller.JOYCON_L:
             raise ValueError('NFC content cannot be set for JOYCON_L')
         elif not args:
-            raise ValueError('"nfc" command requires file path to an nfc dump as argument!')
+            raise ValueError('"nfc" command requires file path to an nfc dump or "remove" as argument!')
         elif args[0] == 'remove':
             controller_state.set_nfc(None)
             print('Removed nfc content.')
         else:
-            _loop = asyncio.get_event_loop()
-            with open(args[0], 'rb') as nfc_file:
-                content = await _loop.run_in_executor(None, nfc_file.read)
-                logger.info("CLI: Set nfc content")
-                controller_state.set_nfc(content)
+            controller_state.set_nfc(NFCTag.load_amiibo(args[0]))
+            print("added nfc content")
 
     cli.add_command(nfc.__name__, nfc)
 
+    async def pause(*args):
+        """
+        Pause regular input
+        """
+        controller_state._protocol.pause()
+
+    cli.add_command(pause.__name__, pause)
+
+    async def unpause(*args):
+        """
+        unpause regular input
+        """
+        controller_state._protocol.unpause()
+
+    cli.add_command(unpause.__name__, unpause)
 
 async def _main(args):
     # Get controller name to emulate from arguments
@@ -299,7 +311,8 @@ async def _main(args):
         transport, protocol = await create_hid_server(factory, reconnect_bt_addr=args.reconnect_bt_addr,
                                                       ctl_psm=ctl_psm,
                                                       itr_psm=itr_psm, capture_file=capture_file,
-                                                      device_id=args.device_id)
+                                                      device_id=args.device_id,
+                                                      interactive=True)
 
         controller_state = protocol.get_controller_state()
 
@@ -307,6 +320,7 @@ async def _main(args):
         cli = ControllerCLI(controller_state)
         _register_commands_with_controller_state(controller_state, cli)
         cli.add_command('amiibo', ControllerCLI.deprecated('Command was removed - use "nfc" instead!'))
+        cli.add_command(debug.debug.__name__, debug.debug)
 
         # set default nfc content supplied by argument
         if args.nfc is not None:

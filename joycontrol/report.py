@@ -66,8 +66,8 @@ class InputReport:
         """
         Sets the joystick status bytes
         """
-        self.set_left_analog_stick(bytes(left_stick))
-        self.set_right_analog_stick(bytes(right_stick))
+        self.set_left_analog_stick(bytes(left_stick) if left_stick else bytes(3))
+        self.set_right_analog_stick(bytes(right_stick) if right_stick else bytes(3))
 
     def set_left_analog_stick(self, left_stick_bytes):
         """
