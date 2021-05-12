@@ -1,5 +1,11 @@
 import asyncio
 
+class _Request:
+    def __init__(self, value, loop):
+        self.value = value
+        self.future = loop.create_future()
+
+
 class MySemaphore(asyncio.Semaphore):
     """
     An implementation of the asyncio-Semaphore with a few more features.
@@ -12,21 +18,22 @@ class MySemaphore(asyncio.Semaphore):
         self._aquired = 0
 
     def _check_next(self):
-        while self._waiters and (self._waiters[0][0].done() or self._value >= self._waiters[0][0]):
-            if not self._waiters[0][0].done():
-                self._waiters.pop(0)[0].set_result(None)
+        while self._waiters and (self._waiters[0].future.done() or self._value >= self._waiters[0].value):
+            r = self._waiters.pop(0)
+            if not r.future.done():
+                r.future.set_result(None)
                 return
 
     async def acquire(self, count=1):
         if count < 0:
             raise ValueError("Semaphore acquire with count < 0")
         while self._value < count:
-            fut = self._loop.create_future()
-            self._waiters.append((count, fut))
+            r = _Request(count, self._loop)
+            self._waiters.append(r)
             try:
-                await fut
+                await r.future
             except:
-                fut.cancel()
+                r.future.cancel()
                 # original has an if here, we wont take the call anymore, call the next one
                 self._check_next()
                 raise
@@ -45,7 +52,7 @@ class MySemaphore(asyncio.Semaphore):
     def get_value(self):
         return self._value
 
-    def get_aquired():
+    def get_aquired(self):
         return self._aquired
 
     def release(self, count=1):

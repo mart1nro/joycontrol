@@ -17,7 +17,7 @@ class NotConnectedError(ConnectionResetError):
     pass
 
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = math.inf) -> None:
+    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = 4) -> None:
         super(L2CAP_Transport, self).__init__()
 
         self._loop = loop
