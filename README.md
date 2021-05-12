@@ -1,6 +1,6 @@
 # joycontrol
 
-Branch: master->amiibo_edits->amiibo_writing->V12_fixes
+Branch: master->amiibo_edits
 
 Emulate Nintendo Switch Controllers over Bluetooth.
 
@@ -10,63 +10,106 @@ Tested on Raspberry 4B Raspbian, should work on 3B+ too and anything that can do
 Emulation of JOYCON_R, JOYCON_L and PRO_CONTROLLER. Able to send:
 - button commands
 - stick state
-- nfc data read
+- nfc for amiibo read & owner registration
 
 ## Installation
-- Install dependencies
-
-Raspbian:
+- Install dependencies  
+  Raspbian:
 ```bash
-sudo apt install python3-dbus libhidapi-hidraw0 libbluetooth-dev
+sudo apt install python3-dbus libhidapi-hidraw0 libbluetooth-dev bluez
 ```
-
-Python: (a setup.py is present but not yet up to date)
+  Python: (a setup.py is present but not yet up to date)
 ```bash
 sudo pip3 install aioconsole hid crc8
 ```
 
 - setup bluetooth
-	- change MAC to be in Nintendos range (starts with 94:58:CB)  
-	for raspi 3B+ and 4B you can use `sudo ./scrips/change_btaddr.sh`  
-	rerun after every reboot
-	- disable SPD  
-	change the `ExecStart` paramters in `/lib/systemd/system/bluetooth.service` to `ExecStart=/usr/lib/bluetooth/bluetoothd -C -P sap,input,avrcp`
-	- change alias  
-	`sudo bluetoothctl system-alias 'Pro Controller'`  
-	Joycons are untested yet, might work might not....
+  - disable SDP  
+  change the `ExecStart` paramters in `/lib/systemd/system/bluetooth.service` to `ExecStart=/usr/lib/bluetooth/bluetoothd -C -P sap,input,avrcp`.  
+  This is to remove the additional reported features as the switch only looks for a controller.
+  - [Done automatically, maybe not neccessary]  
+  change the MAC to start with `98:41:5C:` to appear as manufactured by Nintendo.
+  This step is hardware specific, see [Issue #4](https://github.com/Poohl/joycontrol/issues/4) for details for your hardware.
 
 ## Command line interface example
-- Run the script
+There is a simple CLI (`suco python3 run_controller_cli.py`) provided with this app. Startup-options are:
+```
+usage: run_controller_cli.py [-h] [-l LOG] [-d DEVICE_ID]
+                             [--spi_flash SPI_FLASH] [-r RECONNECT_BT_ADDR]
+                             [--nfc NFC]
+                             controller
+
+positional arguments:
+  controller            JOYCON_R, JOYCON_L or PRO_CONTROLLER
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -l LOG, --log LOG     BT-communication logfile output
+  -d DEVICE_ID, --device_id DEVICE_ID
+                        not fully working yet, the BT-adapter to use
+  --spi_flash SPI_FLASH
+                        controller SPI-memory dump to use
+  -r RECONNECT_BT_ADDR, --reconnect_bt_addr RECONNECT_BT_ADDR
+                        The Switch console Bluetooth address (or "auto" for
+                        automatic detection), for reconnecting as an already
+                        paired controller.
+  --nfc NFC             amiibo dump placed on the controller. Equivalent to
+                        the nfc command.
+
+```
+
+To use the script:
+- start it (this is a minimal example)
 ```bash
 sudo python3 run_controller_cli.py PRO_CONTROLLER
 ```
-This will create a PRO_CONTROLLER instance waiting for the Switch to connect.
+- The cli does sanity checks on startup, you might get promps telling you they failed. Check the command-line options and your setup in this case. (Note: not the logging messages). You can however still try to proceed, sometimes it works despite the warnings.
 
-- Open the "Change Grip/Order" menu of the Switch
+- Afterwards a PRO_CONTROLLER instance waiting for the Switch to connect is created.
 
-The Switch only pairs with new controllers in the "Change Grip/Order" menu.
+- If you didn't pass the `-r` option, Open the "Change Grip/Order" menu of the Switch and wait for it to pair.
 
-After pairing the switch will most certanly just disconnect for some reason.
-Use the reconnect option to avoid this afterwards.
+- If you already connected the emulated controller once, you can use the reconnect option of the script (`-r <Switch Bluetooth Mac address>`). Don't open the "Change Grip/Order" menu in this case, just make sure the switch is turned on. You can find out a paired mac address using the `bluetoothctl paired-devices` system command or pass `-r auto` as address for automatic detection.
 
-Note: If you already connected an emulated controller once, you can use the reconnect option of the script (-r "\<Switch Bluetooth Mac address>").
-This does not require the "Change Grip/Order" menu to be opened. You can find out a paired mac address using the "bluetoothctl" system command.
+- After connecting, a command line interface is opened.  
+  Note: Press \<enter> if you don't see a prompt.
 
-- After connecting, a command line interface is opened. Note: Press \<enter> if you don't see a prompt.
+  Call "help" to see a list of available commands.
 
-Call "help" to see a list of available commands.
+## API
 
-- If you call "test_buttons", the emulated controller automatically navigates to the "Test Controller Buttons" menu. 
+See the `run_controller_cli.py` for an example how to use the API. A minimal example:
 
+```python
+from joycontrol.protocol import controller_protocol_factory
+from joycontrol.server import create_hid_server
+from joycontrol.controller import Controller
+
+# the type of controller to create
+controller = Controller.PRO_CONTROLLER # or JOYCON_L or JOYCON_R
+# a callback to create the corresponding protocol once a connection is established
+factory = controller_protocol_factory(controller)
+# start the emulated controller
+transport, protocol = await create_hid_server(factory)
+# get a reference to the state beeing emulated.
+controller_state = protocol.get_controller_state()
+# wait for input to be accepted
+await controller_state.connect()
+# some sample input
+controller_state.button_state.set_button('a', True)
+# wait for it to be sent at least once
+await controller_state.send()
+```
 
 ## Issues
-- Some bluetooth adapters seem to cause disconnects for reasons unknown, try to use an usb adapter instead 
-- Incompatibility with Bluetooth "input" plugin requires a bluetooth restart, see [#8](https://github.com/mart1nro/joycontrol/issues/8)
+- Some bluetooth adapters seem to cause disconnects for reasons unknown, try to use an usb adapter or a raspi instead.
+- Incompatibility with Bluetooth "input" plugin requires it to be disabled (along with the others), see [Issue #8](https://github.com/mart1nro/joycontrol/issues/8)
 - It seems like the Switch is slower processing incoming messages while in the "Change Grip/Order" menu.
   This causes flooding of packets and makes input after initial pairing somewhat inconsistent.
   Not sure yet what exactly a real controller does to prevent that.
   A workaround is to use the reconnect option after a controller was paired once, so that
   opening of the "Change Grip/Order" menu is not required.
+- The reconnect doesn't ever connect, `bluetoothctl` shows the connection constantly turning on and off. This means the switch tries initial pairing, you have to unpair the switch and try without the `-r` option again.
 - ...
 
 ## Thanks
@@ -79,4 +122,4 @@ Call "help" to see a list of available commands.
 
 [console_pairing_session](https://github.com/timmeh87/switchnotes/blob/master/console_pairing_session)
 
-[V12 Issues thread](https://github.com/Poohl/joycontrol/issues/3)
+[Hardware Issues thread](https://github.com/Poohl/joycontrol/issues/4)

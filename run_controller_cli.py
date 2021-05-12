@@ -345,12 +345,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('controller', help='JOYCON_R, JOYCON_L or PRO_CONTROLLER')
-    parser.add_argument('-l', '--log')
-    parser.add_argument('-d', '--device_id')
-    parser.add_argument('--spi_flash')
+    parser.add_argument('-l', '--log', help="BT-communication logfile output")
+    parser.add_argument('-d', '--device_id', help='not fully working yet, the BT-adapter to use')
+    parser.add_argument('--spi_flash', help="controller SPI-memory dump to use")
     parser.add_argument('-r', '--reconnect_bt_addr', type=str, default=None,
-                        help='The Switch console Bluetooth address, for reconnecting as an already paired controller')
-    parser.add_argument('--nfc', type=str, default=None)
+                        help='The Switch console Bluetooth address (or "auto" for automatic detection), for reconnecting as an already paired controller.')
+    parser.add_argument('--nfc', type=str, default=None, help="amiibo dump placed on the controller. Äquivalent to the nfc command.")
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
