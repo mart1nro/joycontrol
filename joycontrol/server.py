@@ -20,7 +20,6 @@ async def _send_empty_input_reports(transport):
         await transport.write(report)
         await asyncio.sleep(1)
 
-
 async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=None, reconnect_bt_addr=None,
                             capture_file=None, interactive=False):
     """
@@ -44,27 +43,25 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
 
     hid = HidDevice(device_id=device_id)
 
-    if len(hid.get_UUIDs()) > 3:
-        if interactive:
-            print("too many SPD-records active, Switch might refuse connection.")
-            print("try modifieing /lib/systemd/system/bluetooth.service and see")
-            print("https://github.com/Poohl/joycontrol/issues/4 if it doesn't work")
-        else:
-            logger.warning("detected too many SPD-records. Switch might refuse connection.")
-
     bt_addr = hid.get_address()
-    if bt_addr[:8] != "94:58:CB":
-        await hid.set_address("94:58:CB" + bt_addr[8:], interactive=interactive)
-        bt_addr = hid.get_address()
+    #if bt_addr[:8] != "94:58:CB":
+    #    await hid.set_address("94:58:CB" + bt_addr[8:], interactive=interactive)
+    #    bt_addr = hid.get_address()
 
     if reconnect_bt_addr is None:
         if interactive:
+            if len(hid.get_UUIDs()) > 3:
+                print("too many SPD-records active, Switch might refuse connection.")
+                print("try modifieing /lib/systemd/system/bluetooth.service and see")
+                print("https://github.com/Poohl/joycontrol/issues/4 if it doesn't work")
             for sw in hid.get_paired_switches():
                 print(f"Warning: a switch ({sw}) was found paired, do you want to unpair it?")
                 i = input("y/n [y]: ")
                 if i == '' or i == 'y' or i == 'Y':
                     hid.unpair_path(sw)
         else:
+            if len(hid.get_UUIDs()) > 3:
+                logger.warning("detected too many SDP-records. Switch might refuse connection.")
             b = hid.get_paired_switches()
             if b:
                 logger.warning(f"Attempting initial pairing, but switches are paired: {b}")
@@ -90,6 +87,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
             logger.info('Restarting bluetooth service...')
             await utils.run_system_command('systemctl restart bluetooth.service')
             await asyncio.sleep(1)
+            hid = HidDevice(device_id=device_id)
 
             ctl_sock.bind((bt_addr, ctl_psm))
             itr_sock.bind((bt_addr, itr_psm))
