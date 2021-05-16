@@ -195,10 +195,15 @@ class L2CAP_Transport(asyncio.Transport):
             await self.write(data)
 
     def pause_writing(self):
+        logger.info("pause transport write")
         self._write_lock.clear()
 
     def resume_writing(self):
+        logger.info("resume transport write")
         self._write_lock.set()
+
+    def is_writing(self):
+        return not self._write_lock.is_set()
 
     async def close(self):
         """

@@ -18,18 +18,28 @@ Emulation of JOYCON_R, JOYCON_L and PRO_CONTROLLER. Able to send:
 ```bash
 sudo apt install python3-dbus libhidapi-hidraw0 libbluetooth-dev bluez
 ```
-  Python: (a setup.py is present but not yet up to date)
+  Python: (a setup.py is present but not yet up to date)  
+  Note that pip here _has_ to be run as root, as otherwise the packages are not available to the root user.
 ```bash
 sudo pip3 install aioconsole hid crc8
 ```
+ If you are unsure if the packages are properly installed, try running `sudo python3` and import each using `import package_name`.
 
 - setup bluetooth
-  - disable SDP  
-  change the `ExecStart` paramters in `/lib/systemd/system/bluetooth.service` to `ExecStart=/usr/lib/bluetooth/bluetoothd -C -P sap,input,avrcp`.  
-  This is to remove the additional reported features as the switch only looks for a controller.
-  - [Done automatically, maybe not neccessary]  
-  change the MAC to start with `98:41:5C:` to appear as manufactured by Nintendo.
-  This step is hardware specific, see [Issue #4](https://github.com/Poohl/joycontrol/issues/4) for details for your hardware.
+  - [I shouldn't have to say this, but] make sure you have a working Bluetooth adapter\
+  If you are running inside a VM, the PC might but not the VM. Check for a controller using `bluetoothctl show` or `bluetoothctl list`. Also a good indicator it the actual os reporting to not have bluetooth anymore.
+  - disable SDP [only necessary when pairing]\
+  change the `ExecStart` parameter in `/lib/systemd/system/bluetooth.service` to `ExecStart=/usr/lib/bluetooth/bluetoothd -C -P sap,input,avrcp`.\
+  This is to remove the additional reported features as the switch only looks for a controller.\
+  This also breaks all other Bluetooth gadgets, as this also disabled the needed drivers.
+  - disable input plugin [experimental alternative to above when not pairing]\
+  When not pairing, you can get away with only disabling the `input` plugin, only breaking bluetooth-input devices on your PC. Do so by changing `ExecStart` to `ExecStart=/usr/lib/bluetooth/bluetoothd -C -P input` instead.
+  - Restart bluetooth-deamon to apply the changes:
+  ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl restart bluetooth.service
+  ```
+  - see [Issue #4](https://github.com/Poohl/joycontrol/issues/4) if despite that the switch disconnects randomly.
 
 ## Command line interface example
 There is a simple CLI (`suco python3 run_controller_cli.py`) provided with this app. Startup-options are:
@@ -104,11 +114,6 @@ await controller_state.send()
 ## Issues
 - Some bluetooth adapters seem to cause disconnects for reasons unknown, try to use an usb adapter or a raspi instead.
 - Incompatibility with Bluetooth "input" plugin requires it to be disabled (along with the others), see [Issue #8](https://github.com/mart1nro/joycontrol/issues/8)
-- It seems like the Switch is slower processing incoming messages while in the "Change Grip/Order" menu.
-  This causes flooding of packets and makes input after initial pairing somewhat inconsistent.
-  Not sure yet what exactly a real controller does to prevent that.
-  A workaround is to use the reconnect option after a controller was paired once, so that
-  opening of the "Change Grip/Order" menu is not required.
 - The reconnect doesn't ever connect, `bluetoothctl` shows the connection constantly turning on and off. This means the switch tries initial pairing, you have to unpair the switch and try without the `-r` option again.
 - ...
 

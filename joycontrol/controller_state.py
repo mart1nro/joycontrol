@@ -188,6 +188,9 @@ class ButtonState:
     def clear(self):
         self._byte_1 = self._byte_2 = self._byte_3 = 0
 
+    def __bytes__(self):
+        return bytes([self._byte_1, self._byte_2, self._byte_3])
+
 
 async def button_press(controller_state, *buttons):
     """

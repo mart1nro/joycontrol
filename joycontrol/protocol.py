@@ -40,6 +40,12 @@ close_pairing_menu_map = {
     Controller.PRO_CONTROLLER: ['a', 'b', 'home']
 }
 
+close_pairing_masks = {
+    Controller.JOYCON_R: int.from_bytes(bytes([0x2 | 0x8, 0x10, 0]), "big"),
+    Controller.JOYCON_L: int.from_bytes(bytes([0, 0, 0x1 | 0x8]), "big"),
+    Controller.PRO_CONTROLLER: int.from_bytes(bytes([0x4 | 0x8, 0x10, 0]), "big")
+}
+
 class ControllerProtocol(BaseProtocol):
     def __init__(self, controller: Controller, spi_flash: FlashMemory = None, reconnect = False):
         self.controller = controller
@@ -55,16 +61,18 @@ class ControllerProtocol(BaseProtocol):
 
         self._mcu = MicroControllerUnit(self._controller_state)
 
+        self._is_pairing = not reconnect
+
         # input mode
         self.delay_map = {
             None: math.inf, # subcommands only
             0x3F: 1.0,
             0x21: math.inf, # shouldn't happen
-            0x30: 1/60 if reconnect else 1/15, # this needs revising
+            0x30: 1/60, # this needs revising, but 120 seems too fast
+        #    0x30: 1/120 if self.controller == Controller.PRO_CONTROLLER else 1/60,
             0x31: 1/60
         }
         self._input_report_wakeup = asyncio.Event()
-        self._input_report_mode = None
         self._set_mode(None)
 
         # "Pausing"-mechanism.
@@ -84,6 +92,8 @@ class ControllerProtocol(BaseProtocol):
         self._input_report_mode = mode
         if delay:
             self.send_delay = self.delay_map[mode]
+        elif self._is_pairing:
+            self.send_delay = 1/15
         elif mode in self.delay_map:
             self.send_delay = self.delay_map[mode]
         else:
@@ -104,6 +114,12 @@ class ControllerProtocol(BaseProtocol):
         """
         if self.transport is None:
             raise NotConnectedError('Transport not registered.')
+
+        if self._is_pairing and (int.from_bytes(input_report.data[4:7], "big") & close_pairing_masks[self.controller]):
+            # this is a bit too early, but so far no
+            logger.info('left change Grip/Order menu')
+            self._is_pairing = False
+            self._set_mode(self._input_report_mode)
 
         if not self._not_paused.is_set():
             logger.warning("Write while paused")

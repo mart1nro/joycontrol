@@ -103,6 +103,8 @@ class HidDevice:
         """
         logger.info(f'setting device class to {cls}...')
         await utils.run_system_command(f'hciconfig {self._adapter_name} class {cls}')
+        if self.properties.Get(self.adapter.dbus_interface, "Class") != int(cls, base=0):
+            logger.error(f"Could not set class to the required {cls}. Connecting probably won't work.")
 
     async def set_name(self, name: str):
         """
