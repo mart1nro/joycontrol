@@ -39,10 +39,10 @@ sudo pip3 install aioconsole hid crc8
     sudo systemctl daemon-reload
     sudo systemctl restart bluetooth.service
   ```
-  - see [Issue #4](https://github.com/Poohl/joycontrol/issues/4) if despite that the switch disconnects randomly.
+  - see [Issue #4](https://github.com/Poohl/joycontrol/issues/4) if despite that the switch doesn't connect or disconnects randomly.
 
 ## Command line interface example
-There is a simple CLI (`suco python3 run_controller_cli.py`) provided with this app. Startup-options are:
+There is a simple CLI (`sudo python3 run_controller_cli.py`) provided with this app. Startup-options are:
 ```
 usage: run_controller_cli.py [-h] [-l LOG] [-d DEVICE_ID]
                              [--spi_flash SPI_FLASH] [-r RECONNECT_BT_ADDR]
