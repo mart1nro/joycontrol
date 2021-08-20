@@ -10,7 +10,7 @@ class InputReport:
     """
     def __init__(self, data=None):
         if not data:
-            self.data = [0x00] * 364
+            self.data = [0x00] * 363
             # all input reports are prepended with 0xA1
             self.data[0] = 0xA1
         else:
@@ -66,8 +66,8 @@ class InputReport:
         """
         Sets the joystick status bytes
         """
-        self.set_left_analog_stick(bytes(left_stick))
-        self.set_right_analog_stick(bytes(right_stick))
+        self.set_left_analog_stick(bytes(left_stick) if left_stick else bytes(3))
+        self.set_right_analog_stick(bytes(right_stick) if right_stick else bytes(3))
 
     def set_left_analog_stick(self, left_stick_bytes):
         """
@@ -113,12 +113,11 @@ class InputReport:
             self.data[i] = 0x00
 
     def set_ir_nfc_data(self, data):
-        if 50 + len(data) > len(self.data):
-            raise ValueError('Too much data.')
-
-        # write to data
-        for i in range(len(data)):
-            self.data[50 + i] = data[i]
+        if len(data) > 313:
+            raise ValueError(f'Too much data {len(data)} > 313.')
+        elif len(data) != 313:
+            print("warning : too short mcu data")
+        self.data[50:50+len(data)] = data
 
     def reply_to_subcommand_id(self, _id):
         if isinstance(_id, SubCommand):

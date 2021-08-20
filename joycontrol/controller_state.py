@@ -69,7 +69,7 @@ class ControllerState:
         """
         Waits until the switch is paired with the controller and accepts button commands
         """
-        await self._protocol.sig_set_player_lights.wait()
+        await self._protocol.sig_input_ready.wait()
 
 
 class ButtonState:
@@ -160,11 +160,13 @@ class ButtonState:
             self.zl, self.zl_is_set = button_method_factory('_byte_3', 7)
 
     def set_button(self, button, pushed=True):
+        button = button.lower()
         if button not in self._available_buttons:
             raise ValueError(f'Given button "{button}" is not available to {self.controller.device_name()}.')
         getattr(self, button)(pushed=pushed)
 
     def get_button(self, button):
+        button = button.lower()
         if button not in self._available_buttons:
             raise ValueError(f'Given button "{button}" is not available to {self.controller.device_name()}.')
         return getattr(self, f'{button}_is_set')()
@@ -185,6 +187,9 @@ class ButtonState:
 
     def clear(self):
         self._byte_1 = self._byte_2 = self._byte_3 = 0
+
+    def __bytes__(self):
+        return bytes([self._byte_1, self._byte_2, self._byte_3])
 
 
 async def button_press(controller_state, *buttons):

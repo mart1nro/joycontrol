@@ -2,9 +2,13 @@ import asyncio
 import logging
 import struct
 import time
+import socket
+import math
 from typing import Any
+from contextlib import suppress
 
 from joycontrol import utils
+from joycontrol.my_semaphore import MyBoundedSemaphore
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +16,8 @@ logger = logging.getLogger(__name__)
 class NotConnectedError(ConnectionResetError):
     pass
 
-
 class L2CAP_Transport(asyncio.Transport):
-    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None) -> None:
+    def __init__(self, loop, protocol, itr_sock, ctr_sock, read_buffer_size, capture_file=None, flow_control = 4) -> None:
         super(L2CAP_Transport, self).__init__()
 
         self._loop = loop
@@ -23,7 +26,7 @@ class L2CAP_Transport(asyncio.Transport):
         self._itr_sock = itr_sock
         self._ctr_sock = ctr_sock
 
-        self._read_buffer_size = read_buffer_size
+        self._capture_file = capture_file
 
         self._extra_info = {
             'peername': self._itr_sock.getpeername(),
@@ -32,61 +35,47 @@ class L2CAP_Transport(asyncio.Transport):
         }
 
         self._is_closing = False
+
+        # writing control
+        self._write_lock = asyncio.Event()
+        self._write_lock.set()
+        self._write_lock_thread = utils.start_asyncio_thread(self._write_lock_monitor(), ignore=asyncio.CancelledError)
+        self._write_window = MyBoundedSemaphore(flow_control)
+        self._write_window_thread = utils.start_asyncio_thread(self._write_window_monitor(), ignore=asyncio.CancelledError)
+
+        # reading control
+        self._read_buffer_size = read_buffer_size
         self._is_reading = asyncio.Event()
-
-        self._capture_file = capture_file
-
-        # start underlying reader
-        self._read_thread = None
         self._is_reading.set()
-        self.start_reader()
+        self._read_thread = utils.start_asyncio_thread(self._reader(), ignore=asyncio.CancelledError)
+
+    async def _write_window_monitor(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as hci:
+            hci.bind((0,))
+            hci.setblocking(False)
+            # 0x04 = HCI_EVT; 0x13 = Number of completed packets
+            hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x13), 0, 0))
+
+            while True:
+                data = await self._loop.sock_recv(hci, 10)
+                self._write_window.release(data[6] + data[7] * 0x100, best_effort=True)
+
+    async def _write_lock_monitor(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as hci:
+            hci.bind((0,))
+            hci.setblocking(False)
+            # 0x04 = HCI_EVT; 0x1b = Max Slots Change
+            hci.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("IIIh2x", 1 << 0x04, (1 << 0x1b), 0, 0))
+            while True:
+                data = await self._loop.sock_recv(hci, 10)
+                if data[5] < 5:
+                    self.pause_writing()
+                    await asyncio.sleep(1)
+                    self.resume_writing()
 
     async def _reader(self):
         while True:
-            try:
-                data = await self.read()
-            except NotConnectedError:
-                self._read_thread = None
-                break
-
-            await self._protocol.report_received(data, self._itr_sock.getpeername())
-
-    def start_reader(self):
-        """
-        Starts the transport reader which calls the protocols report_received function for every incoming message
-        """
-        if self._read_thread is not None:
-            raise ValueError('Reader is already running.')
-
-        self._read_thread = asyncio.ensure_future(self._reader())
-
-        # Create callback in case the reader is failing
-        callback = utils.create_error_check_callback(ignore=asyncio.CancelledError)
-        self._read_thread.add_done_callback(callback)
-
-    async def set_reader(self, reader: asyncio.Future):
-        """
-        Cancel the currently running reader and register the new one.
-        A reader is a coroutine that calls this transports 'read' function.
-        The 'read' function calls can be paused by calling pause_reading of this transport.
-        :param reader: future reader
-        """
-        if self._read_thread is not None:
-            # cancel currently running reader
-            if self._read_thread.cancel():
-                try:
-                    await self._read_thread
-                except asyncio.CancelledError:
-                    pass
-
-        # Create callback for debugging in case the reader is failing
-        err_callback = utils.create_error_check_callback(ignore=asyncio.CancelledError)
-        reader.add_done_callback(err_callback)
-
-        self._read_thread = reader
-
-    def get_reader(self):
-        return self._read_thread
+            await self._protocol.report_received(await self.read(), self._itr_sock.getpeername())
 
     async def read(self):
         """
@@ -104,7 +93,6 @@ class L2CAP_Transport(asyncio.Transport):
             # disconnect happened
             logger.error('No data received.')
             self._protocol.connection_lost()
-            raise NotConnectedError('No data received.')
 
         if self._capture_file is not None:
             # write data to log file
@@ -113,6 +101,25 @@ class L2CAP_Transport(asyncio.Transport):
             self._capture_file.write(_time + size + data)
 
         return data
+
+# Base transport API
+
+    def write_eof():
+        raise NotImplementedError("cannot write EOF")
+
+    def get_extra_info(self, name: Any, default=None) -> Any:
+        return self._extra_info.get(name, default)
+
+    def is_closing(self) -> bool:
+        return self._is_closing
+
+    def set_protocol(self, protocol: asyncio.BaseProtocol) -> None:
+        self._protocol = protocol
+
+    def get_protocol(self) -> asyncio.BaseProtocol:
+        return self._protocol
+
+# Read-Transport API
 
     def is_reading(self) -> bool:
         """
@@ -135,6 +142,29 @@ class L2CAP_Transport(asyncio.Transport):
     def set_read_buffer_size(self, size):
         self._read_buffer_size = size
 
+# Write-Transport API:
+# This is not compliant to the official trasnport API, as the core methods
+# are asnyc. This is because the official API has no control over time and
+# imho is quite lacking...
+
+    def abort():
+        raise NotImplementedError()
+
+    def can_write_eof():
+        return False
+
+    def get_write_buffer_size():
+        return self._write_window.get_aquired()
+
+    def get_write_buffer_limits():
+        return (0, self._write_window.get_limit())
+
+    def set_write_buffer_limits(high=None, low=None):
+        if low:
+            raise NotImplementedError("Cannot set a lower bound for in flight data...")
+
+        self._write_window.set_limit(high)
+
     async def write(self, data: Any) -> None:
         if isinstance(data, bytes):
             _bytes = data
@@ -150,24 +180,30 @@ class L2CAP_Transport(asyncio.Transport):
         # logger.debug(f'sending "{_bytes}"')
 
         try:
+            await self._write_window.acquire()
+            await self._write_lock.wait()
             await self._loop.sock_sendall(self._itr_sock, _bytes)
         except OSError as err:
             logger.error(err)
             self._protocol.connection_lost()
-            raise NotConnectedError(err)
         except ConnectionResetError as err:
             logger.error(err)
             self._protocol.connection_lost()
-            raise err
 
-    def abort(self) -> None:
-        raise NotImplementedError
+    async def writelines(*data):
+        for d in data:
+            await self.write(data)
 
-    def get_extra_info(self, name: Any, default=None) -> Any:
-        return self._extra_info.get(name, default)
+    def pause_writing(self):
+        logger.info("pause transport write")
+        self._write_lock.clear()
 
-    def is_closing(self) -> bool:
-        return self._is_closing
+    def resume_writing(self):
+        logger.info("resume transport write")
+        self._write_lock.set()
+
+    def is_writing(self):
+        return not self._write_lock.is_set()
 
     async def close(self):
         """
@@ -176,19 +212,23 @@ class L2CAP_Transport(asyncio.Transport):
         if not self._is_closing:
             # was not already closed
             self._is_closing = True
-            if self._read_thread.cancel():
-                # wait for reader to cancel
-                try:
-                    await self._read_thread
-                except asyncio.CancelledError:
-                    pass
+
+            self.pause_reading()
+            self.pause_writing()
+
+            self._read_thread.cancel()
+            self._write_lock_thread.cancel()
+            self._write_window_thread.cancel()
+
+            with suppress(asyncio.CancelledError):
+                await self._read_thread
+            with suppress(asyncio.CancelledError):
+                await self._write_lock_thread
+            with suppress(asyncio.CancelledError):
+                await self._write_window_thread
 
             # interrupt connection should be closed first
             self._itr_sock.close()
             self._ctr_sock.close()
 
-    def set_protocol(self, protocol: asyncio.BaseProtocol) -> None:
-        self._protocol = protocol
-
-    def get_protocol(self) -> asyncio.BaseProtocol:
-        return self._protocol
+            self._protocol.connection_lost(None)

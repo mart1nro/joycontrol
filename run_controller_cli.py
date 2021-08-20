@@ -7,6 +7,7 @@ import os
 
 from aioconsole import ainput
 
+import joycontrol.debug as debug
 from joycontrol import logging_default as log, utils
 from joycontrol.command_line_interface import ControllerCLI
 from joycontrol.controller import Controller
@@ -14,6 +15,7 @@ from joycontrol.controller_state import ControllerState, button_push, button_pre
 from joycontrol.memory import FlashMemory
 from joycontrol.protocol import controller_protocol_factory
 from joycontrol.server import create_hid_server
+from joycontrol.nfc_tag import NFCTag
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +165,6 @@ async def mash_button(controller_state, button, interval):
     # await future to trigger exceptions in case something went wrong
     await user_input
 
-
 def _register_commands_with_controller_state(controller_state, cli):
     """
     Commands registered here can use the given controller state.
@@ -194,6 +195,18 @@ def _register_commands_with_controller_state(controller_state, cli):
         await mash_button(controller_state, button, interval)
 
     cli.add_command(mash.__name__, mash)
+
+    async def click(*args):
+
+        if not args:
+            raise ValueError('"click" command requires a button!')
+
+        await controller_state.connect()
+        ensure_valid_button(controller_state, *args)
+
+        await button_push(controller_state, *args)
+
+    cli.add_command(click.__name__, click)
 
     # Hold a button command
     async def hold(*args):
@@ -248,24 +261,40 @@ def _register_commands_with_controller_state(controller_state, cli):
             nfc <file_name>          Set controller state NFC content to file
             nfc remove               Remove NFC content from controller state
         """
-        logger.error('NFC Support was removed from joycontrol - see https://github.com/mart1nro/joycontrol/issues/80')
+        #logger.error('NFC Support was removed from joycontrol - see https://github.com/mart1nro/joycontrol/issues/80')
         if controller_state.get_controller() == Controller.JOYCON_L:
             raise ValueError('NFC content cannot be set for JOYCON_L')
         elif not args:
-            raise ValueError('"nfc" command requires file path to an nfc dump as argument!')
+            raise ValueError('"nfc" command requires file path to an nfc dump or "remove" as argument!')
         elif args[0] == 'remove':
             controller_state.set_nfc(None)
             print('Removed nfc content.')
         else:
-            _loop = asyncio.get_event_loop()
-            with open(args[0], 'rb') as nfc_file:
-                content = await _loop.run_in_executor(None, nfc_file.read)
-                controller_state.set_nfc(content)
+            controller_state.set_nfc(NFCTag.load_amiibo(args[0]))
+            print("added nfc content")
 
     cli.add_command(nfc.__name__, nfc)
 
+    async def pause(*args):
+        """
+        Pause regular input
+        """
+        controller_state._protocol.pause()
+
+    cli.add_command(pause.__name__, pause)
+
+    async def unpause(*args):
+        """
+        unpause regular input
+        """
+        controller_state._protocol.unpause()
+
+    cli.add_command(unpause.__name__, unpause)
 
 async def _main(args):
+    # Get controller name to emulate from arguments
+    controller = Controller.from_arg(args.controller)
+
     # parse the spi flash
     if args.spi_flash:
         with open(args.spi_flash, 'rb') as spi_flash_file:
@@ -274,17 +303,16 @@ async def _main(args):
         # Create memory containing default controller stick calibration
         spi_flash = FlashMemory()
 
-    # Get controller name to emulate from arguments
-    controller = Controller.from_arg(args.controller)
 
     with utils.get_output(path=args.log, default=None) as capture_file:
         # prepare the the emulated controller
-        factory = controller_protocol_factory(controller, spi_flash=spi_flash)
+        factory = controller_protocol_factory(controller, spi_flash=spi_flash, reconnect = args.reconnect_bt_addr)
         ctl_psm, itr_psm = 17, 19
         transport, protocol = await create_hid_server(factory, reconnect_bt_addr=args.reconnect_bt_addr,
                                                       ctl_psm=ctl_psm,
                                                       itr_psm=itr_psm, capture_file=capture_file,
-                                                      device_id=args.device_id)
+                                                      device_id=args.device_id,
+                                                      interactive=True)
 
         controller_state = protocol.get_controller_state()
 
@@ -292,6 +320,7 @@ async def _main(args):
         cli = ControllerCLI(controller_state)
         _register_commands_with_controller_state(controller_state, cli)
         cli.add_command('amiibo', ControllerCLI.deprecated('Command was removed - use "nfc" instead!'))
+        cli.add_command(debug.debug.__name__, debug.debug)
 
         # set default nfc content supplied by argument
         if args.nfc is not None:
@@ -316,12 +345,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('controller', help='JOYCON_R, JOYCON_L or PRO_CONTROLLER')
-    parser.add_argument('-l', '--log')
-    parser.add_argument('-d', '--device_id')
-    parser.add_argument('--spi_flash')
+    parser.add_argument('-l', '--log', help="BT-communication logfile output")
+    parser.add_argument('-d', '--device_id', help='not fully working yet, the BT-adapter to use')
+    parser.add_argument('--spi_flash', help="controller SPI-memory dump to use")
     parser.add_argument('-r', '--reconnect_bt_addr', type=str, default=None,
-                        help='The Switch console Bluetooth address, for reconnecting as an already paired controller')
-    parser.add_argument('--nfc', type=str, default=None)
+                        help='The Switch console Bluetooth address (or "auto" for automatic detection), for reconnecting as an already paired controller.')
+    parser.add_argument('--nfc', type=str, default=None, help="amiibo dump placed on the controller. Äquivalent to the nfc command.")
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
