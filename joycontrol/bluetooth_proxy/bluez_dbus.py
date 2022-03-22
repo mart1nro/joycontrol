@@ -31,14 +31,14 @@ class HidDevice:
     async def create(cls, device_id=None):
         bus = await dbus_next.aio.MessageBus(bus_type=BusType.SYSTEM).connect()
         bluez_nodes = await bus.introspect(BLUEZ_BUS_NAME, BLUEZ_PATH)
-        adapter_proxy = bus.get_proxy_object(BLUEZ_BUS_NAME, BLUEZ_PATH, bluez_nodes)
-        for adapter_path in adapter_proxy.child_paths:
+        blues_proxy = bus.get_proxy_object(BLUEZ_BUS_NAME, BLUEZ_PATH, bluez_nodes)
+        for adapter_path in blues_proxy.child_paths:
             adapter_nodes = await bus.introspect(BLUEZ_BUS_NAME, adapter_path)
             adapter_object = bus.get_proxy_object(BLUEZ_BUS_NAME, adapter_path, adapter_nodes)
             try:
                 adapter = adapter_object.get_interface(BLUEZ_ADAPTER_INTERFACE)
             except Exception as e:
-                print(e)
+                logger.info("Skipping %s: %s", adapter_path, e)
             else:
                 if device_id is None \
                         or await adapter.get_address() == device_id \

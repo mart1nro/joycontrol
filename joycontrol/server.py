@@ -48,12 +48,13 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         itr_sock.setblocking(False)
         ctl_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         itr_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        hid = await HidDevice.create(device_id=device_id)
+        bt_address = await hid.get_address()
         
         try:
-            hid = await HidDevice.create(device_id=device_id)
-
-            ctl_sock.bind((await hid.get_address(), ctl_psm))
-            itr_sock.bind((await hid.get_address(), itr_psm))
+            ctl_sock.bind((bt_address, ctl_psm))
+            itr_sock.bind((bt_address, itr_psm))
         except OSError as err:
             logger.warning(err)
             # If the ports are already taken, this probably means that the bluez "input" plugin is enabled.
@@ -65,8 +66,6 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
             logger.info('Restarting bluetooth service...')
             await utils.run_system_command('systemctl restart bluetooth.service')
             await asyncio.sleep(1)
-
-            hid = await HidDevice.create(device_id=device_id)
 
             ctl_sock.bind((socket.BDADDR_ANY, ctl_psm))
             itr_sock.bind((socket.BDADDR_ANY, itr_psm))
