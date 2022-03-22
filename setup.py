@@ -10,7 +10,7 @@ setup(name='joycontrol',
       package_data={'joycontrol': ['profile/sdp_record_hid.xml']},
       zip_safe=False,
       install_requires=[
-          'hid', 'aioconsole', 'dbus-python'
+          'hid', 'aioconsole', 'dbus-next'
       ]
-      )
+)
 

@@ -9,7 +9,7 @@ import time
 import hid
 
 from joycontrol import logging_default as log, utils
-from joycontrol.device import HidDevice
+from joycontrol.btadapter_control.bluez_dbus import HidDevice
 from joycontrol.server import PROFILE_PATH
 from joycontrol.utils import AsyncHID
 
@@ -109,16 +109,16 @@ async def _main(capture_file=None, reconnect_bt_addr=None):
         ctl_sock.listen(1)
         itr_sock.listen(1)
 
-        emulated_hid = HidDevice()
+        emulated_hid = await HidDevice.create()
         # setting bluetooth adapter name and class to the device we wish to emulate
         await emulated_hid.set_name(controller['product_string'])
         await emulated_hid.set_class()
 
         logger.info('Advertising the Bluetooth SDP record...')
 
-        emulated_hid.register_sdp_record(PROFILE_PATH)
+        await emulated_hid.register_sdp_record(PROFILE_PATH)
         #emulated_hid.powered(True)
-        emulated_hid.discoverable(True)
+        await emulated_hid.discoverable(True)
         #emulated_hid.pairable(True)
 
         client_ctl, ctl_address = await loop.sock_accept(ctl_sock)
@@ -128,7 +128,7 @@ async def _main(capture_file=None, reconnect_bt_addr=None):
         assert ctl_address[0] == itr_address[0]
 
         # stop advertising
-        emulated_hid.discoverable(False)
+        await emulated_hid.discoverable(False)
     else:
         controller = await get_hid_controller()
 
