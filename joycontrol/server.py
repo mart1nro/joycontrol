@@ -5,8 +5,8 @@ import socket
 import pkg_resources
 
 from joycontrol import utils
-from joycontrol.bluetooth_proxy.exceptions import RegisterException
-from joycontrol.bluetooth_proxy.bluez_dbus import HidDevice
+from joycontrol.btadapter_control.exceptions import RegisterException
+from joycontrol.btadapter_control.bluez_dbus import HidDevice
 from joycontrol.report import InputReport
 from joycontrol.transport import L2CAP_Transport
 

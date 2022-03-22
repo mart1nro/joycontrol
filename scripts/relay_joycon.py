@@ -9,7 +9,7 @@ import time
 import hid
 
 from joycontrol import logging_default as log, utils
-from joycontrol.bluetooth_proxy.bluez_dbus import HidDevice
+from joycontrol.btadapter_control.bluez_dbus import HidDevice
 from joycontrol.server import PROFILE_PATH
 from joycontrol.utils import AsyncHID
 

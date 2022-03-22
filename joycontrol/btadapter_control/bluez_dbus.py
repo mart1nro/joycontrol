@@ -7,7 +7,7 @@ import dbus_next
 from dbus_next import BusType
 
 from joycontrol import utils
-from joycontrol.bluetooth_proxy.exceptions import RegisterException
+from joycontrol.btadapter_control.exceptions import RegisterException
 
 logger = logging.getLogger(__name__)
 HID_UUID = '00001124-0000-1000-8000-00805f9b34fb'
