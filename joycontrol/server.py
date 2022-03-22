@@ -2,11 +2,11 @@ import asyncio
 import logging
 import socket
 
-import dbus
 import pkg_resources
 
 from joycontrol import utils
-from joycontrol.device import HidDevice
+from joycontrol.bluetooth_proxy.exceptions import RegisterException
+from joycontrol.bluetooth_proxy.bluez_dbus import HidDevice
 from joycontrol.report import InputReport
 from joycontrol.transport import L2CAP_Transport
 
@@ -50,10 +50,10 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         itr_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
         try:
-            hid = HidDevice(device_id=device_id)
+            hid = await HidDevice.create(device_id=device_id)
 
-            ctl_sock.bind((hid.address, ctl_psm))
-            itr_sock.bind((hid.address, itr_psm))
+            ctl_sock.bind((await hid.get_address(), ctl_psm))
+            itr_sock.bind((await hid.get_address(), itr_psm))
         except OSError as err:
             logger.warning(err)
             # If the ports are already taken, this probably means that the bluez "input" plugin is enabled.
@@ -66,7 +66,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
             await utils.run_system_command('systemctl restart bluetooth.service')
             await asyncio.sleep(1)
 
-            hid = HidDevice(device_id=device_id)
+            hid = await HidDevice.create(device_id=device_id)
 
             ctl_sock.bind((socket.BDADDR_ANY, ctl_psm))
             itr_sock.bind((socket.BDADDR_ANY, itr_psm))
@@ -74,16 +74,16 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         ctl_sock.listen(1)
         itr_sock.listen(1)
 
-        hid.powered(True)
-        hid.pairable(True)
+        await hid.powered(True)
+        await hid.pairable(True)
         
         # setting bluetooth adapter name to the device we wish to emulate
         await hid.set_name(protocol.controller.device_name())
 
         logger.info('Advertising the Bluetooth SDP record...')
         try:
-            HidDevice.register_sdp_record(PROFILE_PATH)
-        except dbus.exceptions.DBusException as dbus_err:
+            await hid.register_sdp_record(PROFILE_PATH)
+        except RegisterException as dbus_err:
             # Already registered (If multiple controllers are being emulated and this method is called consecutive times)
             logger.debug(dbus_err)
 
@@ -91,7 +91,7 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         await hid.set_class()
 
         # start advertising
-        hid.discoverable()
+        await hid.discoverable()
 
         logger.info('Waiting for Switch to connect... Please open the "Change Grip/Order" menu.')
 
@@ -103,8 +103,8 @@ async def create_hid_server(protocol_factory, ctl_psm=17, itr_psm=19, device_id=
         assert ctl_address[0] == itr_address[0]
 
         # stop advertising
-        hid.discoverable(False)
-        hid.pairable(False)
+        await hid.discoverable(False)
+        await hid.pairable(False)
 
     else:
         # Reconnection to reconnect_bt_addr
